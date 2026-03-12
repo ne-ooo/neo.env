@@ -1,0 +1,71 @@
+{
+  "name": "@lpm.dev/neo.env",
+  "version": "1.0.0",
+  "description": "Zero-dependency environment variable utility - Fast, modern alternative to dotenv",
+  "author": "neo",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    ".lpm",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "bench": "vitest bench --run",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run test"
+  },
+  "keywords": [
+    "env",
+    "dotenv",
+    "environment",
+    "variables",
+    "config",
+    "settings",
+    "typescript",
+    "zero-dependency",
+    "async",
+    "validation",
+    "interpolation",
+    "esm",
+    "tree-shakeable"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ne-ooo/neo.env"
+  },
+  "homepage": "https://github.com/ne-ooo/neo.env#readme",
+  "bugs": {
+    "url": "https://github.com/ne-ooo/neo.env/issues"
+  },
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^1.6.1",
+    "dotenv": "^17.3.1",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
