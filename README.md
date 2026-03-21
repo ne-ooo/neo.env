@@ -2,9 +2,6 @@
 
 > Zero-dependency environment variable utility - Fast, modern alternative to dotenv
 
-[![npm version](https://badge.fury.io/js/@lpm.dev%2Fneo.env.svg)](https://www.npmjs.com/package/@lpm.dev/neo.env)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-
 ## Features
 
 ✅ **Zero dependencies** - Completely self-contained
@@ -37,18 +34,18 @@ API_KEY=secret123
 Load it in your application:
 
 ```typescript
-import '@lpm.dev/neo.env/config' // Auto-loads .env
+import "@lpm.dev/neo.env/config"; // Auto-loads .env
 
-console.log(process.env.PORT) // '3000'
+console.log(process.env.PORT); // '3000'
 ```
 
 Or use the async API:
 
 ```typescript
-import { load } from '@lpm.dev/neo.env'
+import { load } from "@lpm.dev/neo.env";
 
-await load()
-console.log(process.env.PORT) // '3000'
+await load();
+console.log(process.env.PORT); // '3000'
 ```
 
 ## API Reference
@@ -58,17 +55,17 @@ console.log(process.env.PORT) // '3000'
 Asynchronously load and parse a .env file.
 
 ```typescript
-import { load } from '@lpm.dev/neo.env'
+import { load } from "@lpm.dev/neo.env";
 
 const result = await load({
-  path: '.env', // File path (default: '.env')
-  encoding: 'utf8', // File encoding
+  path: ".env", // File path (default: '.env')
+  encoding: "utf8", // File encoding
   override: false, // Override existing env vars
   expand: false, // Enable variable interpolation
-})
+});
 
-console.log(result.parsed) // { PORT: '3000', ... }
-console.log(result.errors) // Any parsing errors
+console.log(result.parsed); // { PORT: '3000', ... }
+console.log(result.errors); // Any parsing errors
 ```
 
 ### `loadSync(options?)`
@@ -76,9 +73,9 @@ console.log(result.errors) // Any parsing errors
 Synchronously load and parse a .env file (dotenv compatibility).
 
 ```typescript
-import { loadSync } from '@lpm.dev/neo.env'
+import { loadSync } from "@lpm.dev/neo.env";
 
-const result = loadSync({ path: '.env' })
+const result = loadSync({ path: ".env" });
 ```
 
 ### `parse(content, options?)`
@@ -86,10 +83,10 @@ const result = loadSync({ path: '.env' })
 Parse .env file content into key-value pairs.
 
 ```typescript
-import { parse } from '@lpm.dev/neo.env'
+import { parse } from "@lpm.dev/neo.env";
 
-const result = parse('KEY=value\nFOO=bar')
-console.log(result.parsed) // { KEY: 'value', FOO: 'bar' }
+const result = parse("KEY=value\nFOO=bar");
+console.log(result.parsed); // { KEY: 'value', FOO: 'bar' }
 ```
 
 ### `expand(parsed, options?)`
@@ -97,16 +94,16 @@ console.log(result.parsed) // { KEY: 'value', FOO: 'bar' }
 Expand variable references in parsed environment variables.
 
 ```typescript
-import { expand } from '@lpm.dev/neo.env'
+import { expand } from "@lpm.dev/neo.env";
 
 const parsed = {
-  HOST: 'localhost',
-  PORT: '3000',
-  URL: 'http://${HOST}:${PORT}',
-}
+  HOST: "localhost",
+  PORT: "3000",
+  URL: "http://${HOST}:${PORT}",
+};
 
-const expanded = expand(parsed)
-console.log(expanded.URL) // 'http://localhost:3000'
+const expanded = expand(parsed);
+console.log(expanded.URL); // 'http://localhost:3000'
 ```
 
 ### `validate(parsed, schema)`
@@ -114,21 +111,21 @@ console.log(expanded.URL) // 'http://localhost:3000'
 Validate and coerce environment variables against a schema.
 
 ```typescript
-import { validate } from '@lpm.dev/neo.env'
+import { validate } from "@lpm.dev/neo.env";
 
 const schema = {
-  PORT: { type: 'number', required: true },
-  DEBUG: { type: 'boolean', default: 'false' },
-  NODE_ENV: { enum: ['development', 'production', 'test'] },
-  API_URL: { type: 'url', required: true },
-}
+  PORT: { type: "number", required: true },
+  DEBUG: { type: "boolean", default: "false" },
+  NODE_ENV: { enum: ["development", "production", "test"] },
+  API_URL: { type: "url", required: true },
+};
 
-const result = validate(parsed, schema)
+const result = validate(parsed, schema);
 
 if (result.valid) {
-  console.log(result.values.PORT) // number, not string!
+  console.log(result.values.PORT); // number, not string!
 } else {
-  console.error(result.errors)
+  console.error(result.errors);
 }
 ```
 
@@ -156,10 +153,10 @@ FULL_API_URL=${BASE_URL}/api/v1
 Enable interpolation when loading:
 
 ```typescript
-await load({ expand: true })
+await load({ expand: true });
 
-console.log(process.env.API_URL) // 'http://localhost:3000/api'
-console.log(process.env.BASE_URL) // 'http://localhost:3000' (used default)
+console.log(process.env.API_URL); // 'http://localhost:3000/api'
+console.log(process.env.BASE_URL); // 'http://localhost:3000' (used default)
 ```
 
 ### Syntax
@@ -169,6 +166,7 @@ console.log(process.env.BASE_URL) // 'http://localhost:3000' (used default)
 - `${VAR:-default}` - Variable with default value
 
 Variables are looked up in this order:
+
 1. Parsed .env values
 2. Existing `process.env`
 3. Default value (if provided)
@@ -178,51 +176,51 @@ Variables are looked up in this order:
 Validate and coerce environment variables for type safety:
 
 ```typescript
-import { load, validate } from '@lpm.dev/neo.env'
+import { load, validate } from "@lpm.dev/neo.env";
 
-const { parsed } = await load()
+const { parsed } = await load();
 
 const schema = {
   // Type coercion
-  PORT: { type: 'number', required: true },
-  DEBUG: { type: 'boolean' },
+  PORT: { type: "number", required: true },
+  DEBUG: { type: "boolean" },
 
   // Validation
   NODE_ENV: {
-    enum: ['development', 'production', 'test'],
-    default: 'development',
+    enum: ["development", "production", "test"],
+    default: "development",
   },
 
   // URL validation
-  API_URL: { type: 'url', required: true },
+  API_URL: { type: "url", required: true },
 
   // Email validation
-  ADMIN_EMAIL: { type: 'email' },
+  ADMIN_EMAIL: { type: "email" },
 
   // JSON parsing
-  FEATURES: { type: 'json' },
+  FEATURES: { type: "json" },
 
   // Pattern matching
   VERSION: { pattern: /^v\d+\.\d+\.\d+$/ },
 
   // Custom transform
   TAGS: {
-    transform: (value) => value.split(',').map((s) => s.trim()),
+    transform: (value) => value.split(",").map((s) => s.trim()),
   },
-}
+};
 
-const result = validate(parsed, schema)
+const result = validate(parsed, schema);
 
 if (!result.valid) {
-  console.error('Invalid environment:', result.errors)
-  process.exit(1)
+  console.error("Invalid environment:", result.errors);
+  process.exit(1);
 }
 
 // Use validated, coerced values
-const config = result.values
-console.log(typeof config.PORT) // 'number'
-console.log(typeof config.DEBUG) // 'boolean'
-console.log(Array.isArray(config.TAGS)) // true
+const config = result.values;
+console.log(typeof config.PORT); // 'number'
+console.log(typeof config.DEBUG); // 'boolean'
+console.log(Array.isArray(config.TAGS)); // true
 ```
 
 ### Schema Types
@@ -283,34 +281,34 @@ Neo.env is a drop-in replacement for dotenv:
 
 ```typescript
 // Before (dotenv)
-import dotenv from 'dotenv'
-dotenv.config()
+import dotenv from "dotenv";
+dotenv.config();
 
 // After (neo.env) - exact same API
-import dotenv from '@lpm.dev/neo.env'
-dotenv.config()
+import dotenv from "@lpm.dev/neo.env";
+dotenv.config();
 
 // Or use named import
-import { loadSync } from '@lpm.dev/neo.env'
-loadSync()
+import { loadSync } from "@lpm.dev/neo.env";
+loadSync();
 ```
 
 Additional methods:
 
 ```typescript
-import dotenv from '@lpm.dev/neo.env'
+import dotenv from "@lpm.dev/neo.env";
 
 // Async version
-await dotenv.configAsync()
+await dotenv.configAsync();
 
 // Parse .env content
-const parsed = dotenv.parse('KEY=value')
+const parsed = dotenv.parse("KEY=value");
 
 // Expand variables
-const expanded = dotenv.expand({ HOST: 'localhost', URL: '${HOST}' })
+const expanded = dotenv.expand({ HOST: "localhost", URL: "${HOST}" });
 
 // Validate with schema
-const validated = dotenv.validate(parsed, schema)
+const validated = dotenv.validate(parsed, schema);
 ```
 
 ## Migration from dotenv
@@ -325,28 +323,28 @@ lpm install @lpm.dev/neo.env
 
 ```typescript
 // Before
-import dotenv from 'dotenv'
+import dotenv from "dotenv";
 // or
-const dotenv = require('dotenv')
+const dotenv = require("dotenv");
 
 // After
-import dotenv from '@lpm.dev/neo.env'
+import dotenv from "@lpm.dev/neo.env";
 // or
-const dotenv = require('@lpm.dev/neo.env')
+const dotenv = require("@lpm.dev/neo.env");
 ```
 
 ### Step 3: (Optional) Use new features
 
 ```typescript
 // Use async API
-await dotenv.configAsync()
+await dotenv.configAsync();
 
 // Enable variable interpolation
-dotenv.config({ expand: true })
+dotenv.config({ expand: true });
 
 // Add schema validation
-const { parsed } = dotenv.config()
-const result = dotenv.validate(parsed, schema)
+const { parsed } = dotenv.config();
+const result = dotenv.validate(parsed, schema);
 ```
 
 That's it! All existing dotenv code continues to work.
@@ -362,23 +360,23 @@ import type {
   ParseResult,
   Schema,
   ValidationResult,
-} from '@lpm.dev/neo.env'
+} from "@lpm.dev/neo.env";
 
 // Type-safe configuration
 const options: LoadOptions = {
-  path: '.env',
+  path: ".env",
   expand: true,
-}
+};
 
-const result: LoadResult = await load(options)
+const result: LoadResult = await load(options);
 
 // Type-safe schema
 const schema: Schema = {
-  PORT: { type: 'number', required: true },
-  DEBUG: { type: 'boolean' },
-}
+  PORT: { type: "number", required: true },
+  DEBUG: { type: "boolean" },
+};
 
-const validation: ValidationResult = validate(result.parsed, schema)
+const validation: ValidationResult = validate(result.parsed, schema);
 ```
 
 ## Performance
@@ -405,10 +403,10 @@ Despite having more features than dotenv (async API, variable interpolation, sch
 ### Basic Usage
 
 ```typescript
-import { load } from '@lpm.dev/neo.env'
+import { load } from "@lpm.dev/neo.env";
 
-await load()
-console.log(process.env.DATABASE_URL)
+await load();
+console.log(process.env.DATABASE_URL);
 ```
 
 ### With Variable Interpolation
@@ -419,40 +417,40 @@ console.log(process.env.DATABASE_URL)
 // DB_PORT=5432
 // DATABASE_URL=postgres://${DB_HOST}:${DB_PORT}/mydb
 
-await load({ expand: true })
-console.log(process.env.DATABASE_URL) // postgres://localhost:5432/mydb
+await load({ expand: true });
+console.log(process.env.DATABASE_URL); // postgres://localhost:5432/mydb
 ```
 
 ### With Schema Validation
 
 ```typescript
-const { parsed } = await load()
+const { parsed } = await load();
 
 const schema = {
-  PORT: { type: 'number', required: true },
-  NODE_ENV: { enum: ['development', 'production'] },
-}
+  PORT: { type: "number", required: true },
+  NODE_ENV: { enum: ["development", "production"] },
+};
 
-const result = validate(parsed, schema)
+const result = validate(parsed, schema);
 if (!result.valid) {
-  throw new Error(`Invalid config: ${JSON.stringify(result.errors)}`)
+  throw new Error(`Invalid config: ${JSON.stringify(result.errors)}`);
 }
 
-const config = result.values
-startServer(config.PORT) // TypeScript knows PORT is a number!
+const config = result.values;
+startServer(config.PORT); // TypeScript knows PORT is a number!
 ```
 
 ### Multiple Environment Files
 
 ```typescript
 // Load base config
-await load({ path: '.env' })
+await load({ path: ".env" });
 
 // Override with environment-specific config
 await load({
   path: `.env.${process.env.NODE_ENV}`,
   override: true,
-})
+});
 ```
 
 ## FAQ
@@ -460,6 +458,7 @@ await load({
 ### Why neo.env instead of dotenv?
 
 Neo.env modernizes dotenv with:
+
 - Native TypeScript support
 - Async/await API
 - Variable interpolation
@@ -474,6 +473,7 @@ Yes! 100% compatible. It's a drop-in replacement.
 ### Can I use it in production?
 
 Yes! Neo.env is production-ready with:
+
 - 97 passing tests
 - 100% type coverage
 - Comprehensive error handling
@@ -493,11 +493,4 @@ Don't pass `expand: true` to load options. Expansion is opt-in.
 
 ## License
 
-MIT © [@lpm.dev](https://lpm.dev)
-
-## Links
-
-- [Documentation](https://lpm.dev/docs/neo.env)
-- [GitHub](https://github.com/lpm-dev/neo.env)
-- [npm](https://www.npmjs.com/package/@lpm.dev/neo.env)
-- [Benchmarks](./BENCHMARKS.md)
+MIT
