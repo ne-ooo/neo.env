@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LPM_VERSION: "0.73.0"
+
+jobs:
+  node:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - node: "18.20.8"
+            # minimatch supports Node 18, but its brace-expansion dependency
+            # declares Node 20. The test run still proves runtime compatibility.
+            install_args: "--no-engine-strict"
+          - node: "20"
+            install_args: ""
+          - node: "22"
+            install_args: ""
+          - node: "24"
+            install_args: ""
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install LPM
+        run: npm install --global "@lpm-registry/cli@${LPM_VERSION}"
+
+      - name: Install locked dependencies
+        run: lpm ci --no-skills --no-editor-setup --no-security-summary ${{ matrix.install_args }}
+
+      - name: Make sure that the lockfile is unchanged
+        run: git diff --exit-code -- package.json lpm.lock
+
+      - name: Typecheck source
+        run: lpm run typecheck
+
+      - name: Typecheck schema inference
+        run: lpm run typecheck:tests
+
+      - name: Run differential and adversarial tests
+        run: lpm run test
+
+      - name: Build ESM, CommonJS, and declarations
+        run: lpm run build
+
+      - name: Smoke-test staged ESM and CommonJS packages
+        run: lpm run test:package
+
+  quality:
+    name: Coverage, security, and package validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: "22"
+
+      - name: Install LPM
+        run: npm install --global "@lpm-registry/cli@${LPM_VERSION}"
+
+      - name: Install locked dependencies
+        run: lpm ci --no-skills --no-editor-setup --no-security-summary
+
+      - name: Audit dependencies
+        run: lpm run security:audit
+
+      - name: Measure coverage
+        run: lpm run test:coverage
+
+      - name: Build the package
+        run: lpm run build
+
+      - name: Validate the publishable package
+        run: lpm run package:check

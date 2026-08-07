@@ -1,111 +1,120 @@
-import { readFile, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { parse } from './parser.js'
+import { parseDetailed } from './parser.js'
 import { expand } from './expander.js'
-import type { LoadOptions, LoadResult } from '../types.js'
+import { setOwn } from './record.js'
+import type {
+  ConfigResult,
+  ExpandOptions,
+  LoadOptions,
+  LoadResult,
+  ParseOptions,
+} from '../types.js'
 
 /**
- * Asynchronously load and parse a .env file
+ * Asynchronously load and parse a .env file.
  *
  * @param options - Load options
- * @returns Promise with parsed variables and errors
+ * @returns Parsed variables and format errors
  */
 export async function load(options: LoadOptions = {}): Promise<LoadResult> {
-  const {
-    path = '.env',
-    encoding = 'utf8',
-    override = false,
-    expand: shouldExpand = false,
-    debug,
-    multiline,
-  } = options
-
+  const path = options.path ?? '.env'
+  const encoding = options.encoding ?? 'utf8'
   const filePath = resolve(process.cwd(), path)
 
-  // Read file asynchronously
-  const content = await new Promise<string>((resolve, reject) => {
-    readFile(filePath, encoding, (err, data) => {
-      if (err) {
-        reject(err)
-      } else {
-        resolve(data)
-      }
-    })
-  })
+  const { readFile } = await import('node:fs/promises')
+  const content = await readFile(filePath, encoding)
 
-  // Parse content
-  const parseOpts: { debug?: boolean; multiline?: boolean } = {}
-  if (debug !== undefined) parseOpts.debug = debug
-  if (multiline !== undefined) parseOpts.multiline = multiline
-  const result = parse(content, parseOpts)
+  return processContent(content, options)
+}
 
-  // Expand variables if requested
-  let finalParsed = result.parsed
-  if (shouldExpand) {
-    finalParsed = expand(result.parsed, {
-      processEnv: process.env as Record<string, string>,
-      parsed: result.parsed,
-    })
-  }
+/**
+ * Synchronously load and parse a .env file.
+ *
+ * @param options - Load options
+ * @returns Parsed variables and format errors
+ */
+export function loadSync(options: LoadOptions = {}): LoadResult {
+  const path = options.path ?? '.env'
+  const encoding = options.encoding ?? 'utf8'
+  const filePath = resolve(process.cwd(), path)
+  const content = readFileSync(filePath, encoding)
 
-  // Apply to process.env
-  for (const [key, value] of Object.entries(finalParsed)) {
-    if (override || !(key in process.env)) {
-      process.env[key] = value
-    }
-  }
+  return processContent(content, options)
+}
 
-  return {
-    parsed: finalParsed,
-    errors: result.errors,
+/**
+ * Load a .env file with the dotenv-compatible error contract.
+ *
+ * @param options - Load options
+ * @returns Parsed variables and an optional file error
+ */
+export function config(options: LoadOptions = {}): ConfigResult {
+  try {
+    const configOptions =
+      options.allowPartial === undefined ? { ...options, allowPartial: true } : options
+    return { parsed: loadSync(configOptions).parsed }
+  } catch (error) {
+    return { parsed: {}, error: toError(error) }
   }
 }
 
 /**
- * Synchronously load and parse a .env file
+ * Load a .env file asynchronously.
  *
  * @param options - Load options
- * @returns Parsed variables and errors
+ * @returns Parsed variables and format errors
  */
-export function loadSync(options: LoadOptions = {}): LoadResult {
-  const {
-    path = '.env',
-    encoding = 'utf8',
-    override = false,
-    expand: shouldExpand = false,
-    debug,
-    multiline,
-  } = options
+export function configAsync(options: LoadOptions = {}): Promise<LoadResult> {
+  return load(options)
+}
 
-  const filePath = resolve(process.cwd(), path)
+function processContent(content: string, options: LoadOptions): LoadResult {
+  const parseOptions = selectParseOptions(options)
+  const result = parseDetailed(content, parseOptions)
 
-  // Read file synchronously
-  const content = readFileSync(filePath, encoding)
+  if (result.errors.length > 0 && !(options.allowPartial ?? false)) {
+    return result
+  }
 
-  // Parse content
-  const parseOpts: { debug?: boolean; multiline?: boolean } = {}
-  if (debug !== undefined) parseOpts.debug = debug
-  if (multiline !== undefined) parseOpts.multiline = multiline
-  const result = parse(content, parseOpts)
-
-  // Expand variables if requested
+  const targetEnv = options.processEnv ?? process.env
+  const override = options.override ?? false
   let finalParsed = result.parsed
-  if (shouldExpand) {
-    finalParsed = expand(result.parsed, {
-      processEnv: process.env as Record<string, string>,
-      parsed: result.parsed,
-    })
-  }
 
-  // Apply to process.env
-  for (const [key, value] of Object.entries(finalParsed)) {
-    if (override || !(key in process.env)) {
-      process.env[key] = value
+  if (options.expand) {
+    const effectiveParsed: Record<string, string> = {}
+    for (const [key, value] of Object.entries(result.parsed)) {
+      if (override || !Object.hasOwn(targetEnv, key)) {
+        setOwn(effectiveParsed, key, value)
+      }
     }
+
+    const expandOptions: ExpandOptions = {
+      processEnv: targetEnv,
+      parsed: effectiveParsed,
+      recursive: options.recursive ?? true,
+    }
+    if (options.maxDepth !== undefined) expandOptions.maxDepth = options.maxDepth
+    if (options.maxOutputLength !== undefined) {
+      expandOptions.maxOutputLength = options.maxOutputLength
+    }
+    finalParsed = expand(result.parsed, expandOptions)
   }
 
-  return {
-    parsed: finalParsed,
-    errors: result.errors,
+  for (const [key, value] of Object.entries(finalParsed)) {
+    if (override || !Object.hasOwn(targetEnv, key)) setOwn(targetEnv, key, value)
   }
+
+  return { parsed: finalParsed, errors: result.errors }
+}
+
+function selectParseOptions(options: LoadOptions): ParseOptions {
+  const selected: ParseOptions = {}
+  if (options.debug !== undefined) selected.debug = options.debug
+  if (options.multiline !== undefined) selected.multiline = options.multiline
+  return selected
+}
+
+function toError(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
 }

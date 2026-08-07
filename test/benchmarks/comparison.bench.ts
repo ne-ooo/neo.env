@@ -92,14 +92,30 @@ API_URL=http://\${HOST}:\${PORT}/api
   })
 
   describe('Variable Expansion (neo.env feature)', () => {
+    const parsedVariables = parseNeo(envWithVariables)
+    const emptyEnvironment = {}
+    const sharedVariables = {
+      ROOT: '/srv/application',
+      SHARED: '${ROOT}/shared',
+      ...Object.fromEntries(
+        Array.from({ length: 100 }, (_, index) => [
+          `PATH_${index}`,
+          `\${SHARED}/service-${index}`,
+        ])
+      ),
+    }
+
     bench('neo.env - variable expansion', () => {
-      const parsed = parseNeo(envWithVariables)
-      expandNeo(parsed.parsed)
+      expandNeo(parsedVariables, { processEnv: emptyEnvironment })
     })
 
     bench('neo.env - parse + expand', () => {
       const parsed = parseNeo(envWithVariables)
-      expandNeo(parsed.parsed)
+      expandNeo(parsed, { processEnv: emptyEnvironment })
+    })
+
+    bench('neo.env - shared-reference expansion', () => {
+      expandNeo(sharedVariables, { processEnv: emptyEnvironment })
     })
   })
 
@@ -142,7 +158,7 @@ LOG_LEVEL=info
 
     bench('neo.env - real-world with expansion', () => {
       const parsed = parseNeo(realWorld)
-      expandNeo(parsed.parsed)
+      expandNeo(parsed, { processEnv: {} })
     })
   })
 })

@@ -1,275 +1,86 @@
-import { describe, it, expect } from 'vitest'
-import { parse } from '../../src/core/parser.js'
+import { describe, expect, it } from 'vitest'
+import dotenv from 'dotenv'
+import { parse, parseDetailed } from '../../src/core/parser.js'
 
 describe('parser', () => {
-  describe('basic parsing', () => {
-    it('should parse simple key=value pairs', () => {
-      const content = 'KEY=value\nFOO=bar'
-      const result = parse(content)
+  describe('dotenv-compatible parse API', () => {
+    it('returns the parsed record directly', () => {
+      expect(parse('KEY=value\nFOO=bar')).toEqual({ KEY: 'value', FOO: 'bar' })
+    })
 
-      expect(result.parsed).toEqual({
-        KEY: 'value',
-        FOO: 'bar',
+    it('accepts Buffer input', () => {
+      expect(parse(Buffer.from('KEY=value'))).toEqual({ KEY: 'value' })
+    })
+
+    const compatibilityCases: Array<[string, string]> = [
+      ['simple values', 'KEY=value\nEMPTY='],
+      ['supported key characters', 'my.key=value\nmy-key=other\nMY_KEY_123=data'],
+      ['export prefix', 'export KEY=value\nOTHER=data'],
+      ['colon delimiter', 'KEY: value'],
+      ['comments', '# comment\nA=value#comment\nB="value # text" # comment'],
+      ['quote styles', 'A="double value"\nB=\'single value\'\nC=`backtick value`'],
+      ['double-quote newlines', 'A="line1\\nline2\\rline3"'],
+      ['single-quote escapes', "A='line1\\nline2'"],
+      ['escaped double quote', 'A="say \\"hello\\""'],
+      ['multiline value', 'A="line1\nline2"\nB=after'],
+      ['Windows line endings', 'A=one\r\nB=two\r\n'],
+      ['whitespace', '  A  =  value  \nB="  quoted  "'],
+      ['invalid entries', 'A=one\nINVALID ENTRY\nB=two'],
+    ]
+
+    for (const [name, content] of compatibilityCases) {
+      it(`matches dotenv for ${name}`, () => {
+        expect(parse(content)).toEqual(dotenv.parse(content))
       })
+    }
+  })
+
+  describe('parseDetailed API', () => {
+    it('returns parsed values and line-numbered errors', () => {
+      const result = parseDetailed('A=one\nINVALID ENTRY\nB=two')
+
+      expect(result.parsed).toEqual({ A: 'one', B: 'two' })
+      expect(result.errors).toEqual([
+        {
+          code: 'INVALID_ENTRY',
+          line: 2,
+          message: 'Invalid environment entry',
+        },
+      ])
+    })
+
+    it('does not include invalid content in error messages', () => {
+      const result = parseDetailed('API_KEY fictitious-secret')
+
+      expect(result.errors[0]?.message).toBe('Invalid environment entry')
+      expect(result.errors[0]?.code).toBe('INVALID_ENTRY')
+      expect(result.errors[0]?.message).not.toContain('fictitious-secret')
+    })
+
+    it('stores prototype-like names as own properties', () => {
+      const result = parse('__proto__=proto\nconstructor=ctor\ntoString=text')
+
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
+      expect(Object.hasOwn(result, '__proto__')).toBe(true)
+      expect(Object.hasOwn(result, 'constructor')).toBe(true)
+      expect(Object.hasOwn(result, 'toString')).toBe(true)
+      expect(result.__proto__).toBe('proto')
+      expect(result.constructor).toBe('ctor')
+      expect(result.toString).toBe('text')
+    })
+
+    it('does not report comments or empty lines', () => {
+      const result = parseDetailed('# comment\n\nA=value\n')
+
+      expect(result.parsed).toEqual({ A: 'value' })
       expect(result.errors).toEqual([])
     })
 
-    it('should parse keys with underscores', () => {
-      const content = 'MY_KEY=value\nANOTHER_KEY_123=bar'
-      const result = parse(content)
+    it('does not report lines inside multiline quoted values', () => {
+      const result = parseDetailed('A="line1\nline2\nline3"')
 
-      expect(result.parsed).toEqual({
-        MY_KEY: 'value',
-        ANOTHER_KEY_123: 'bar',
-      })
-    })
-
-    it('should parse keys with dots and hyphens', () => {
-      const content = 'my.key=value\nmy-key=bar'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        'my.key': 'value',
-        'my-key': 'bar',
-      })
-    })
-
-    it('should handle empty values', () => {
-      const content = 'EMPTY='
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        EMPTY: '',
-      })
-    })
-  })
-
-  describe('quoted values', () => {
-    it('should parse double-quoted values', () => {
-      const content = 'KEY="value with spaces"'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value with spaces',
-      })
-    })
-
-    it('should parse single-quoted values', () => {
-      const content = "KEY='value with spaces'"
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value with spaces',
-      })
-    })
-
-    it('should parse backtick-quoted values', () => {
-      const content = 'KEY=`value with spaces`'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value with spaces',
-      })
-    })
-
-    it('should preserve quotes in quoted values', () => {
-      const content = 'KEY="value with \\"nested\\" quotes"'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value with "nested" quotes',
-      })
-    })
-  })
-
-  describe('escape sequences', () => {
-    it('should unescape \\n in quoted values', () => {
-      const content = 'KEY="line1\\nline2"'
-      const result = parse(content)
-
-      expect(result.parsed.KEY).toBe('line1\nline2')
-    })
-
-    it('should unescape \\r in quoted values', () => {
-      const content = 'KEY="line1\\rline2"'
-      const result = parse(content)
-
-      expect(result.parsed.KEY).toBe('line1\rline2')
-    })
-
-    it('should unescape \\t in quoted values', () => {
-      const content = 'KEY="tab\\there"'
-      const result = parse(content)
-
-      expect(result.parsed.KEY).toBe('tab\there')
-    })
-
-    it('should unescape \\\\ in quoted values', () => {
-      const content = 'KEY="back\\\\slash"'
-      const result = parse(content)
-
-      expect(result.parsed.KEY).toBe('back\\slash')
-    })
-  })
-
-  describe('comments', () => {
-    it('should skip comment lines', () => {
-      const content = '# This is a comment\nKEY=value'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value',
-      })
-    })
-
-    it('should strip inline comments from unquoted values', () => {
-      const content = 'KEY=value # this is a comment'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value',
-      })
-    })
-
-    it('should preserve # in quoted values', () => {
-      const content = 'KEY="value # not a comment"'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value # not a comment',
-      })
-    })
-
-    it('should skip empty lines', () => {
-      const content = 'KEY1=value1\n\n\nKEY2=value2'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY1: 'value1',
-        KEY2: 'value2',
-      })
-    })
-  })
-
-  describe('export prefix', () => {
-    it('should parse lines with export prefix', () => {
-      const content = 'export KEY=value'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value',
-      })
-    })
-
-    it('should parse mixed export and non-export lines', () => {
-      const content = 'export KEY1=value1\nKEY2=value2\nexport KEY3=value3'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY1: 'value1',
-        KEY2: 'value2',
-        KEY3: 'value3',
-      })
-    })
-  })
-
-  describe('whitespace handling', () => {
-    it('should trim whitespace around keys and values', () => {
-      const content = '  KEY  =  value  '
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: 'value',
-      })
-    })
-
-    it('should preserve whitespace in quoted values', () => {
-      const content = 'KEY="  value  "'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY: '  value  ',
-      })
-    })
-  })
-
-  describe('error handling', () => {
-    it('should report invalid line format', () => {
-      const content = 'INVALID LINE WITHOUT EQUALS'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({})
-      expect(result.errors).toHaveLength(1)
-      expect(result.errors[0]?.line).toBe(1)
-      expect(result.errors[0]?.message).toContain('Invalid line format')
-    })
-
-    it('should report multiple errors', () => {
-      const content = 'KEY1=value1\nINVALID LINE 1\nKEY2=value2\nINVALID LINE 2'
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        KEY1: 'value1',
-        KEY2: 'value2',
-      })
-      expect(result.errors).toHaveLength(2)
-      expect(result.errors[0]?.line).toBe(2)
-      expect(result.errors[1]?.line).toBe(4)
-    })
-
-    it('should include line numbers in errors', () => {
-      const content = '# Comment\n\nINVALID'
-      const result = parse(content)
-
-      expect(result.errors[0]?.line).toBe(3)
-    })
-  })
-
-  describe('real-world examples', () => {
-    it('should parse a typical .env file', () => {
-      const content = `
-# Database
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=myapp
-
-# API
-API_URL="https://api.example.com"
-API_KEY=secret123
-
-# Feature flags
-ENABLE_FEATURE_X=true
-      `.trim()
-
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        DB_HOST: 'localhost',
-        DB_PORT: '5432',
-        DB_NAME: 'myapp',
-        API_URL: 'https://api.example.com',
-        API_KEY: 'secret123',
-        ENABLE_FEATURE_X: 'true',
-      })
+      expect(result.parsed.A).toBe('line1\nline2\nline3')
       expect(result.errors).toEqual([])
-    })
-
-    it('should handle mixed quote styles', () => {
-      const content = `
-SINGLE='single quoted'
-DOUBLE="double quoted"
-BACKTICK=\`backtick quoted\`
-UNQUOTED=no quotes
-      `.trim()
-
-      const result = parse(content)
-
-      expect(result.parsed).toEqual({
-        SINGLE: 'single quoted',
-        DOUBLE: 'double quoted',
-        BACKTICK: 'backtick quoted',
-        UNQUOTED: 'no quotes',
-      })
     })
   })
 })
