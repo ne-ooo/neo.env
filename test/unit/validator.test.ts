@@ -58,6 +58,35 @@ describe('validator', () => {
       expect(result.errors[0]?.key).toBe('PORT')
       expect(result.errors[0]?.message).toContain('valid number')
     })
+
+    it('should accept decimal exponents and reject non-decimal literals', () => {
+      const schema: Schema = {
+        EXPONENT: { type: 'number' },
+        HEX: { type: 'number' },
+        BINARY: { type: 'number' },
+      }
+
+      const result = validate(
+        { EXPONENT: '1.5e2', HEX: '0x10', BINARY: '0b10' },
+        schema
+      )
+
+      expect(result.valid).toBe(false)
+      expect(result.values.EXPONENT).toBe(150)
+      expect(result.values.HEX).toBeUndefined()
+      expect(result.values.BINARY).toBeUndefined()
+      expect(result.errors).toHaveLength(2)
+    })
+
+    it('should reject finite-syntax values that overflow', () => {
+      const result = validate(
+        { LIMIT: '1e999' },
+        { LIMIT: { type: 'number' } }
+      )
+
+      expect(result.valid).toBe(false)
+      expect(result.errors[0]?.message).toContain('finite number')
+    })
   })
 
   describe('boolean type', () => {
@@ -257,6 +286,44 @@ describe('validator', () => {
       expect(result.valid).toBe(true)
       expect(result.values.PORT).toBe('8080')
     })
+
+    it('should coerce default values', () => {
+      const schema: Schema = {
+        PORT: { type: 'number', default: '3000' },
+        DEBUG: { type: 'boolean', default: 'false' },
+      }
+
+      const result = validate({}, schema)
+
+      expect(result.valid).toBe(true)
+      expect(result.values.PORT).toBe(3000)
+      expect(result.values.DEBUG).toBe(false)
+    })
+
+    it('should reject defaults that fail validation', () => {
+      const schema: Schema = {
+        MODE: { enum: ['production'], default: 'invalid' },
+        ENDPOINT: { type: 'url', default: 'not a url' },
+        RETRY_LIMIT: { type: 'number', default: 'Infinity' },
+      }
+
+      const result = validate({}, schema)
+
+      expect(result.valid).toBe(false)
+      expect(result.errors).toHaveLength(3)
+      expect(result.values).toEqual({})
+    })
+
+    it('should let a valid default satisfy a required field', () => {
+      const schema: Schema = {
+        PORT: { type: 'number', required: true, default: '3000' },
+      }
+
+      const result = validate({}, schema)
+
+      expect(result.valid).toBe(true)
+      expect(result.values.PORT).toBe(3000)
+    })
   })
 
   describe('enum validation', () => {
@@ -306,6 +373,53 @@ describe('validator', () => {
 
       expect(result.valid).toBe(false)
       expect(result.errors[0]?.message).toContain('does not match')
+    })
+
+    it('should give stable results for global patterns', () => {
+      const pattern = /^ok$/g
+      pattern.lastIndex = 1
+      const schema: Schema = { TOKEN: { pattern } }
+
+      const first = validate({ TOKEN: 'ok' }, schema)
+      const second = validate({ TOKEN: 'ok' }, schema)
+
+      expect(first.valid).toBe(true)
+      expect(second.valid).toBe(true)
+      expect(pattern.lastIndex).toBe(1)
+    })
+  })
+
+  describe('prototype-like field names', () => {
+    it('should treat inherited names as missing', () => {
+      const schema: Schema = {
+        toString: { required: true },
+        constructor: { required: true },
+      }
+
+      const result = validate({}, schema)
+
+      expect(result.valid).toBe(false)
+      expect(result.errors).toHaveLength(2)
+    })
+
+    it('should store an own __proto__ value without changing the prototype', () => {
+      const parsed: Record<string, string> = {}
+      const schema: Schema = {}
+      Object.defineProperty(parsed, '__proto__', {
+        value: 'safe',
+        enumerable: true,
+      })
+      Object.defineProperty(schema, '__proto__', {
+        value: { type: 'string' },
+        enumerable: true,
+      })
+
+      const result = validate(parsed, schema)
+
+      expect(result.valid).toBe(true)
+      expect(Object.getPrototypeOf(result.values)).toBe(Object.prototype)
+      expect(Object.hasOwn(result.values, '__proto__')).toBe(true)
+      expect(result.values.__proto__).toBe('safe')
     })
   })
 

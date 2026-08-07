@@ -11,26 +11,48 @@ export interface ParsedLine {
 
 export interface ParseResult {
   parsed: Record<string, string>
-  errors: Array<{ line: number; message: string }>
+  errors: ParseError[]
+}
+
+export type ParseErrorCode = 'INVALID_ENTRY'
+
+export interface ParseError {
+  code: ParseErrorCode
+  line: number
+  message: string
 }
 
 export interface ExpandOptions {
-  processEnv?: Record<string, string>
+  processEnv?: Record<string, string | undefined>
   parsed?: Record<string, string>
   recursive?: boolean
+  maxDepth?: number
+  maxOutputLength?: number
 }
 
-export interface LoadOptions extends ParseOptions, ExpandOptions {
+export interface LoadOptions extends ParseOptions {
   path?: string
   encoding?: BufferEncoding
   override?: boolean
   expand?: boolean
+  processEnv?: Record<string, string | undefined>
+  recursive?: boolean
+  maxDepth?: number
+  maxOutputLength?: number
+  allowPartial?: boolean
 }
 
 export interface LoadResult {
   parsed: Record<string, string>
-  errors: Array<{ line: number; message: string }>
+  errors: ParseError[]
 }
+
+export interface ConfigResult {
+  parsed?: Record<string, string>
+  error?: Error
+}
+
+export type ExpansionErrorCode = 'CYCLE' | 'MAX_DEPTH' | 'MAX_OUTPUT_LENGTH'
 
 export type SchemaType = 'string' | 'number' | 'boolean' | 'url' | 'email' | 'json'
 
@@ -40,18 +62,53 @@ export interface SchemaField {
   default?: string
   pattern?: RegExp
   enum?: string[]
-  transform?: (value: string) => any
+  transform?: (value: string) => unknown
 }
 
 export type Schema = Record<string, SchemaField>
+
+export type InferSchemaField<TField extends SchemaField> =
+  TField extends { transform: (value: string) => infer TOutput }
+    ? TOutput
+    : TField extends { type: 'number' }
+      ? number
+      : TField extends { type: 'boolean' }
+        ? boolean
+        : TField extends { type: 'json' }
+          ? unknown
+          : string
+
+type RequiredSchemaKey<TSchema extends Schema> = {
+  [TKey in keyof TSchema]-?: TSchema[TKey] extends
+    | { required: true }
+    | { default: string }
+    ? TKey
+    : never
+}[keyof TSchema]
+
+type Simplify<TValue> = { [TKey in keyof TValue]: TValue[TKey] } & {}
+
+export type InferSchema<TSchema extends Schema> = string extends keyof TSchema
+  ? Record<string, unknown>
+  : Simplify<
+      {
+        [TKey in RequiredSchemaKey<TSchema>]: InferSchemaField<TSchema[TKey]>
+      } & {
+        [TKey in Exclude<keyof TSchema, RequiredSchemaKey<TSchema>>]?: InferSchemaField<
+          TSchema[TKey]
+        >
+      }
+    >
 
 export interface ValidationError {
   key: string
   message: string
 }
 
-export interface ValidationResult {
+export interface ValidationResult<
+  TValues extends Record<string, unknown> = Record<string, unknown>,
+> {
   valid: boolean
   errors: ValidationError[]
-  values: Record<string, any>
+  values: TValues
 }

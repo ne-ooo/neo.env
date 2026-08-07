@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { expand } from '../../src/core/expander.js'
+import { expand, ExpansionError } from '../../src/core/expander.js'
 
 describe('expander', () => {
   const originalEnv = { ...process.env }
@@ -218,16 +218,14 @@ describe('expander', () => {
       expect(result.D).toBe('value-a')
     })
 
-    it('should prevent infinite recursion', () => {
+    it('should reject circular references', () => {
       const parsed = {
         A: '${B}',
         B: '${A}',
       }
 
-      const result = expand(parsed)
-
-      // Should not crash, just stop at max depth
-      expect(result).toBeDefined()
+      expect(() => expand(parsed)).toThrowError(ExpansionError)
+      expect(() => expand(parsed)).toThrow('A -> B -> A')
     })
 
     it('should disable recursion when requested', () => {
@@ -278,6 +276,65 @@ describe('expander', () => {
       expect(result.PRICE).toBe('Cost: $100')
     })
 
+    it('should preserve escaped variable references', () => {
+      const parsed = {
+        TOKEN: 'secret',
+        PASSWORD: 'pa\\$TOKEN',
+      }
+
+      const result = expand(parsed)
+
+      expect(result.PASSWORD).toBe('pa$TOKEN')
+    })
+
+    it('should use a default for an empty value', () => {
+      const parsed = {
+        EMPTY: '',
+        VALUE: '${EMPTY:-fallback}',
+      }
+
+      const result = expand(parsed)
+
+      expect(result.VALUE).toBe('fallback')
+    })
+
+    it('should reject output that exceeds the configured limit', () => {
+      const parsed = {
+        LARGE: '1234567890',
+      }
+
+      expect(() => expand(parsed, { maxOutputLength: 5 })).toThrow(
+        'exceeded 5 characters'
+      )
+    })
+
+    it('should reject self-amplifying references before allocation grows', () => {
+      const parsed = {
+        A: '$A$A$A',
+      }
+
+      expect(() => expand(parsed)).toThrowError(ExpansionError)
+      expect(() => expand(parsed)).toThrow('A -> A')
+    })
+
+    it('should expand a wide graph with shared references', () => {
+      const parsed = {
+        ROOT: '/srv/application',
+        SHARED: '${ROOT}/shared',
+        ...Object.fromEntries(
+          Array.from({ length: 1_000 }, (_, index) => [
+            `PATH_${index}`,
+            `\${SHARED}/service-${index}`,
+          ])
+        ),
+      }
+
+      const result = expand(parsed, { processEnv: {} })
+
+      expect(result.PATH_0).toBe('/srv/application/shared/service-0')
+      expect(result.PATH_999).toBe('/srv/application/shared/service-999')
+    })
+
     it('should handle mixed syntax in same value', () => {
       const parsed = {
         HOST: 'localhost',
@@ -288,6 +345,30 @@ describe('expander', () => {
       const result = expand(parsed)
 
       expect(result.URL).toBe('http://localhost:3000')
+    })
+
+    it('should not resolve inherited prototype names', () => {
+      const result = expand(
+        { VALUE: '${toString}:${constructor}:${__proto__}' },
+        { processEnv: {} }
+      )
+
+      expect(result.VALUE).toBe('${toString}:${constructor}:${__proto__}')
+    })
+
+    it('should preserve own prototype-like names safely', () => {
+      const parsed: Record<string, string> = { VALUE: '${__proto__}' }
+      Object.defineProperty(parsed, '__proto__', {
+        value: 'safe',
+        enumerable: true,
+      })
+
+      const result = expand(parsed, { processEnv: {} })
+
+      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
+      expect(Object.hasOwn(result, '__proto__')).toBe(true)
+      expect(result.__proto__).toBe('safe')
+      expect(result.VALUE).toBe('safe')
     })
   })
 

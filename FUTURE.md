@@ -1,6 +1,6 @@
-# @lpm.dev/neo.env - Future Enhancements
+# @lpm.dev/neo.env Roadmap
 
-Potential features and improvements for future versions.
+This roadmap lists possible work after version 1.0.0.
 
 ## High Priority Features
 
@@ -448,25 +448,27 @@ Track feature requests at:
 
 ---
 
-## Recommended Implementation Order
+## Release Plan
 
-### v0.2.0 (Next Minor)
+### v1.0.0 (Current)
+
+- Stable parser and loader APIs
+- Bounded and memoized variable expansion
+- Schema validation with inferred TypeScript output
+- ESM and CommonJS package formats
+- LPM lockfile, security audit, and package validation
+
+### v1.1.0 (Next Minor)
 
 1. Multiple environment files
 2. Watch mode
 3. Docker secrets
 
-### v0.3.0
+### v1.2.0
 
 4. CLI tool
 5. Encrypted files
 6. Remote loading
-
-### v1.0.0 (Stable)
-
-- All core features stable
-- Comprehensive documentation
-- Production battle-tested
 
 ### v2.0.0 (Major)
 
@@ -476,5 +478,6 @@ Track feature requests at:
 
 ---
 
-**Last Updated**: 2026-02-18
-**Package Version**: 0.1.0
+**Last updated**: 2026-08-07
+
+**Package version**: 1.0.0

@@ -1,286 +1,84 @@
-# @lpm.dev/neo.env - Performance Benchmarks
+# Performance Benchmarks
 
-Performance comparison between **@lpm.dev/neo.env** and the original **dotenv** package.
+This report compares `@lpm.dev/neo.env` with `dotenv@17.4.2`.
+It also measures the expansion operations that `dotenv` does not provide.
 
-## Summary
+## Test Environment
 
-**Neo.env is competitive with dotenv** - matching or exceeding performance across most operations! 🚀
+- Package version: `1.0.0`
+- Date: 2026-08-07
+- Hardware: Apple M5 Pro (`arm64`)
+- Operating system: macOS 26.5.2
+- Node.js: 22.22.3, selected by LPM
+- Test runner: Vitest 3.2.7
 
-## Environment
+## Method
 
-- **Platform**: macOS (Darwin 25.3.0)
-- **Node.js**: v20+
-- **Test Runner**: Vitest 1.6.1
-- **Benchmark Method**: Operations/second (hz)
+The benchmark ran five times in separate processes.
+Each process used the default Vitest warm-up and sampling periods.
+The tables show the median operation rate and the full range from the five runs.
+A larger operation rate is better.
 
-## Results
+The expansion-only case parses its input before the timed operation.
+The parse-and-expand case includes both operations in the timed operation.
+This separation prevents duplicate or misleading expansion measurements.
 
-### Parse Performance - Small Files
+## Parser Results
 
-Parsing a simple 3-line .env file:
+| Scenario | `neo.env` median Hz | `neo.env` range | `dotenv` median Hz | `dotenv` range | Median ratio |
+|---|---:|---:|---:|---:|---:|
+| Three entries | 2,553,452 | 2,541,284–2,567,710 | 2,076,754 | 1,871,967–2,167,208 | 1.23x |
+| 100 entries | 98,978 | 97,472–101,365 | 67,738 | 59,881–68,133 | 1.46x |
+| Comments | 1,273,538 | 1,255,673–1,285,855 | 911,454 | 829,052–928,594 | 1.40x |
+| Quoted values | 1,776,026 | 1,739,681–1,783,649 | 1,097,148 | 1,004,003–1,108,677 | 1.62x |
+| Escape sequences | 1,666,511 | 1,629,982–1,693,446 | 1,299,388 | 1,178,898–1,337,570 | 1.28x |
+| Example production file | 548,383 | 543,435–567,408 | 371,759 | 337,282–376,431 | 1.48x |
 
-```env
-KEY1=value1
-KEY2=value2
-KEY3=value3
-```
+The smallest `dotenv` case had the largest run-to-run variation.
+Use the ranges when you compare the results.
 
-| Package | Ops/sec | Mean (ms) |
-|---------|---------|-----------|
-| **neo.env** | **1,362,047** | **0.0007** |
-| dotenv | 1,100,686 | 0.0009 |
+## Expansion Results
 
-**Result**: ✅ **1.24x faster** than dotenv
+| Scenario | Median Hz | Range |
+|---|---:|---:|
+| Expansion only, four entries | 544,641 | 524,570–568,773 |
+| Parse and expansion, four entries | 421,623 | 408,183–432,245 |
+| Shared-reference expansion, 102 entries | 16,912 | 15,972–17,233 |
+| Example production file with expansion | 118,347 | 114,055–119,445 |
 
----
+The shared-reference case contains 100 values that depend on the same expanded value.
+The expander memoizes that shared value.
+It also rejects cycles and limits the reference depth and output length.
 
-### Parse Performance - Large Files
+## Built Package Size
 
-Parsing a 100-line .env file:
+The size table contains the uncompressed output from `lpm run build`.
 
-| Package | Ops/sec | Mean (ms) |
-|---------|---------|-----------|
-| **dotenv** | **44,114** | **0.0227** |
-| neo.env | 40,816 | 0.0245 |
+| Entry | ESM | CommonJS | Declaration file |
+|---|---:|---:|---:|
+| Main API | 14,459 bytes | 16,387 bytes | 5,458 bytes per format |
+| Side-effect configuration | 10,303 bytes | 10,370 bytes | 13 bytes per format |
 
-**Result**: ~0.93x (slightly slower, but within margin)
+The package has no runtime dependencies.
+The size values do not include source maps.
 
----
+## Run the Benchmark
 
-### Parse with Comments
-
-Parsing .env files with comments and blank lines:
-
-```env
-# Database configuration
-DB_HOST=localhost
-DB_PORT=5432
-
-# API configuration
-API_URL=https://api.example.com
-```
-
-| Package | Ops/sec | Mean (ms) |
-|---------|---------|-----------|
-| **neo.env** | **599,861** | **0.0017** |
-| dotenv | 564,763 | 0.0018 |
-
-**Result**: ✅ **1.06x faster** than dotenv
-
----
-
-### Quoted Values
-
-Handling different quote styles:
-
-```env
-SINGLE='single quoted value'
-DOUBLE="double quoted value"
-BACKTICK=`backtick quoted value`
-```
-
-| Package | Ops/sec | Mean (ms) |
-|---------|---------|-----------|
-| **neo.env** | **626,969** | **0.0016** |
-| dotenv | 591,803 | 0.0017 |
-
-**Result**: ✅ **1.06x faster** than dotenv
-
----
-
-### Escape Sequences
-
-Parsing values with escape sequences:
-
-```env
-NEWLINE="line1\nline2"
-TAB="col1\tcol2"
-QUOTE="He said \"hello\""
-```
-
-| Package | Ops/sec | Mean (ms) |
-|---------|---------|-----------|
-| **neo.env** | **591,893** | **0.0017** |
-| dotenv | 543,085 | 0.0018 |
-
-**Result**: ✅ **1.09x faster** than dotenv
-
----
-
-### Variable Expansion (Neo.env Exclusive Feature)
-
-Expanding variable references (not available in dotenv):
-
-```env
-HOST=localhost
-PORT=3000
-DATABASE_URL=postgres://${HOST}:5432/db
-API_URL=http://${HOST}:${PORT}/api
-```
-
-| Operation | Ops/sec | Mean (ms) |
-|-----------|---------|-----------|
-| **Parse + Expand** | **392,099** | **0.0026** |
-| Expand only | 372,481 | 0.0027 |
-
-**Neo.env exclusive**: No comparison available (dotenv doesn't support this)
-
----
-
-### Real-World Scenario
-
-Comprehensive .env file with 15+ variables:
-
-```env
-NODE_ENV=production
-PORT=8080
-DB_HOST=db.example.com
-DB_PORT=5432
-DATABASE_URL=postgres://${DB_USER}:${DB_PASS}@${DB_HOST}:${DB_PORT}/${DB_NAME}
-API_URL=https://api.example.com
-# ... more variables
-```
-
-| Package/Operation | Ops/sec | Mean (ms) |
-|-------------------|---------|-----------|
-| **dotenv - parse** | **243,619** | **0.0041** |
-| neo.env - parse | 231,991 | 0.0043 |
-| neo.env - parse + expand | 126,181 | 0.0079 |
-
-**Result**: Competitive (~0.95x for parsing, expansion adds 2x overhead)
-
----
-
-## Performance Summary
-
-| Operation | neo.env (ops/sec) | dotenv (ops/sec) | Speed Comparison |
-|-----------|-------------------|------------------|------------------|
-| Small file parsing | 1.36M | 1.10M | **1.24x faster** ⚡ |
-| Large file parsing | 40.8K | 44.1K | ~0.93x (competitive) |
-| With comments | 600K | 565K | **1.06x faster** ⚡ |
-| Quoted values | 627K | 592K | **1.06x faster** ⚡ |
-| Escape sequences | 592K | 543K | **1.09x faster** ⚡ |
-| Real-world | 232K | 244K | ~0.95x (competitive) |
-| **Variable expansion** | **392K** | N/A | **Exclusive feature** 🎯 |
-
-**Average**: Neo.env matches or exceeds dotenv performance in most scenarios!
-
----
-
-## Bundle Size Comparison
-
-### Neo.env
-
-| Build | Size | Minified |
-|-------|------|----------|
-| **ESM** | 7.9 KB | ~5.5 KB |
-| **CJS** | 8.1 KB | ~5.7 KB |
-| **Types** | 2.9 KB | N/A |
-
-### Dotenv
-
-| Build | Size | Minified |
-|-------|------|----------|
-| **ESM** | ~6 KB | ~4.5 KB |
-| **CJS** | ~6.5 KB | ~5 KB |
-
-**Result**: Neo.env is ~30% larger but includes significantly more features:
-- ✅ Async/await API
-- ✅ Variable interpolation
-- ✅ Schema validation
-- ✅ Better error tracking
-- ✅ TypeScript-first
-
----
-
-## Why is Neo.env Competitive/Faster?
-
-### 1. Modern JavaScript Patterns
-
-- **Neo.env**: Written for Node 18+ with modern syntax
-- **Dotenv**: Maintains compatibility with older Node versions
-
-### 2. Single-Pass Parsing
-
-- **Neo.env**: One iteration through lines with efficient regex
-- **Dotenv**: Multiple string replacement passes
-
-### 3. Modern Regex
-
-- **Neo.env**: Uses modern `String.match()` with named groups
-- **Dotenv**: Uses stateful regex with `.exec()` loops
-
-### 4. Strict TypeScript
-
-- **Neo.env**: TypeScript-first with compile-time optimizations
-- **Dotenv**: JavaScript with `.d.ts` type definitions
-
-### 5. Optimized for Common Cases
-
-- **Neo.env**: Fast paths for simple key=value pairs
-- **Dotenv**: Handles all cases uniformly
-
----
-
-## Real-World Impact
-
-### Development
-
-- **Fast startup**: Negligible performance impact
-- **Hot reload**: Quick .env file reloading
-- **Tests**: Fast test suite execution with env loading
-
-### Production
-
-- **Async API**: Non-blocking file I/O when needed
-- **Variable expansion**: Eliminate redundant config
-- **Schema validation**: Catch configuration errors early
-- **Bundle size**: Minimal impact (~2KB difference)
-
----
-
-## Running Benchmarks
+Run one trial:
 
 ```bash
-# Run all benchmarks
-pnpm bench
-
-# Run with detailed output
-pnpm vitest bench --reporter=verbose
-
-# Run specific benchmark suite
-pnpm vitest bench comparison
+lpm run bench
 ```
 
----
+Run this command five times to reproduce the run-level median and range.
+Do not compare results from different hardware or Node.js versions as one data set.
 
-## Benchmark Methodology
+## Interpretation
 
-All benchmarks use Vitest's built-in benchmarking with:
-- Multiple iterations for statistical significance
-- Warm-up runs to eliminate JIT compilation variance
-- Consistent test data across both packages
-- Same Node.js version and environment
+Environment parsing usually occurs once during application startup.
+As a result, parser micro-optimizations have less value than safe expansion behavior.
+The expansion implementation uses memoization for repeated references.
+It also uses explicit limits for adversarial input.
 
----
-
-## Conclusion
-
-**@lpm.dev/neo.env** delivers:
-- ✅ **Competitive or better performance** vs dotenv
-- ✅ **Exclusive features** (async, expansion, validation)
-- ✅ **Modern codebase** (TypeScript, ESM-first)
-- ✅ **Small bundle size** (~8KB total)
-- ✅ **100% API compatibility**
-
-Perfect for:
-- New projects wanting modern features
-- Existing dotenv users seeking enhancements
-- Performance-sensitive applications
-- TypeScript projects
-
----
-
-**Last Updated**: 2026-02-18
-**Package Version**: 0.1.0
-**Compared Against**: dotenv@17.3.1
+These results describe this test environment only.
+They do not guarantee the same ratio for other files, computers, or Node.js versions.

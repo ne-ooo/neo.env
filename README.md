@@ -1,6 +1,6 @@
 # @lpm.dev/neo.env
 
-> Zero-dependency environment variable utility - Fast, modern alternative to dotenv
+> Zero-dependency environment variable parser, loader, expander, and validator
 
 ## Features
 
@@ -8,11 +8,11 @@
 ✅ **Async/Await API** - Non-blocking file I/O
 ✅ **Variable interpolation** - `$VAR` and `${VAR:-default}` syntax
 ✅ **Schema validation** - Type coercion and validation
-✅ **100% dotenv compatible** - Drop-in replacement
-✅ **TypeScript-first** - Full type safety with strict mode
+✅ **Dotenv-compatible APIs** - Compatible `config()` and `parse()` contracts
+✅ **TypeScript-first** - Native types with strict mode
 ✅ **ESM + CommonJS** - Works everywhere
-✅ **Fast** - Competitive performance with dotenv
-✅ **Small** - ~8KB bundle size
+✅ **Measured** - Five-run parser and expansion benchmarks
+✅ **Small** - 14.1 KB ESM main bundle
 
 ## Installation
 
@@ -62,15 +62,21 @@ const result = await load({
   encoding: "utf8", // File encoding
   override: false, // Override existing env vars
   expand: false, // Enable variable interpolation
+  recursive: true, // Expand nested references
+  maxDepth: 64, // Maximum reference depth
+  maxOutputLength: 1048576, // Maximum characters per value
+  allowPartial: false, // Apply valid entries when format errors exist
 });
 
 console.log(result.parsed); // { PORT: '3000', ... }
-console.log(result.errors); // Any parsing errors
+console.log(result.errors); // Any format errors
 ```
+
+`load()` and `loadSync()` do not change the target environment when format errors exist. Set `allowPartial: true` to apply valid entries.
 
 ### `loadSync(options?)`
 
-Synchronously load and parse a .env file (dotenv compatibility).
+Synchronously load and parse a .env file. File errors throw.
 
 ```typescript
 import { loadSync } from "@lpm.dev/neo.env";
@@ -78,16 +84,40 @@ import { loadSync } from "@lpm.dev/neo.env";
 const result = loadSync({ path: ".env" });
 ```
 
-### `parse(content, options?)`
+### `config(options?)`
 
-Parse .env file content into key-value pairs.
+Load a .env file with the dotenv-compatible result contract.
+
+```typescript
+import { config } from "@lpm.dev/neo.env";
+
+const { parsed, error } = config({ path: ".env" });
+if (error) console.error(error);
+```
+
+`config()` permits partial parsing by default for dotenv compatibility. Set `allowPartial: false` to prevent partial changes.
+
+### `parse(content)`
+
+Parse a string or buffer with the dotenv-compatible result contract.
 
 ```typescript
 import { parse } from "@lpm.dev/neo.env";
 
-const result = parse("KEY=value\nFOO=bar");
-console.log(result.parsed); // { KEY: 'value', FOO: 'bar' }
+const parsed = parse("KEY=value\nFOO=bar");
+console.log(parsed); // { KEY: 'value', FOO: 'bar' }
 ```
+
+Use `parseDetailed()` when you need line-numbered format errors:
+
+```typescript
+import { parseDetailed } from "@lpm.dev/neo.env";
+
+const { parsed, errors } = parseDetailed("KEY=value\nINVALID ENTRY");
+// errors[0]: { code: 'INVALID_ENTRY', line: 2, message: 'Invalid environment entry' }
+```
+
+Format-error messages do not contain source values.
 
 ### `expand(parsed, options?)`
 
@@ -111,19 +141,19 @@ console.log(expanded.URL); // 'http://localhost:3000'
 Validate and coerce environment variables against a schema.
 
 ```typescript
-import { validate } from "@lpm.dev/neo.env";
+import { validate, type Schema } from "@lpm.dev/neo.env";
 
 const schema = {
   PORT: { type: "number", required: true },
   DEBUG: { type: "boolean", default: "false" },
   NODE_ENV: { enum: ["development", "production", "test"] },
   API_URL: { type: "url", required: true },
-};
+} satisfies Schema;
 
 const result = validate(parsed, schema);
 
 if (result.valid) {
-  console.log(result.values.PORT); // number, not string!
+  console.log(result.values.PORT); // number
 } else {
   console.error(result.errors);
 }
@@ -164,19 +194,24 @@ console.log(process.env.BASE_URL); // 'http://localhost:3000' (used default)
 - `$VAR` - Simple variable reference (uppercase only)
 - `${VAR}` - Explicit variable reference
 - `${VAR:-default}` - Variable with default value
+- `\$VAR` - Literal variable text without expansion
 
-Variables are looked up in this order:
+The `expand()` function uses this lookup order:
 
-1. Parsed .env values
-2. Existing `process.env`
-3. Default value (if provided)
+1. Values in `options.parsed`, or the input record
+2. Values in `options.processEnv`, or `process.env`
+3. The default value
+
+The loader applies `override` before expansion. Existing environment values remain authoritative when `override` is `false`.
+
+Recursive expansion detects cycles. It also limits depth and output length. Configure these limits with `maxDepth` and `maxOutputLength`.
 
 ## Schema Validation
 
 Validate and coerce environment variables for type safety:
 
 ```typescript
-import { load, validate } from "@lpm.dev/neo.env";
+import { load, validate, type Schema } from "@lpm.dev/neo.env";
 
 const { parsed } = await load();
 
@@ -205,9 +240,9 @@ const schema = {
 
   // Custom transform
   TAGS: {
-    transform: (value) => value.split(",").map((s) => s.trim()),
+    transform: (value: string) => value.split(",").map((s) => s.trim()),
   },
-};
+} satisfies Schema;
 
 const result = validate(parsed, schema);
 
@@ -226,7 +261,7 @@ console.log(Array.isArray(config.TAGS)); // true
 ### Schema Types
 
 - `string` - String value (default)
-- `number` - Coerce to number
+- `number` - Coerce a finite decimal value to a number
 - `boolean` - Coerce to boolean (`true`/`false`, `1`/`0`)
 - `url` - Validate URL format
 - `email` - Validate email format
@@ -240,6 +275,8 @@ console.log(Array.isArray(config.TAGS)); // true
 - `enum` - Allowed values
 - `pattern` - RegExp pattern to match
 - `transform` - Custom transformation function
+
+Number validation accepts decimal and exponent syntax. It rejects hexadecimal, binary, octal, and non-finite values.
 
 ## .env File Syntax
 
@@ -255,10 +292,11 @@ SINGLE='single quoted'
 DOUBLE="double quoted"
 BACKTICK=`backtick quoted`
 
-# Escape sequences in quotes
+# Double-quoted \n and \r sequences become line breaks
 MULTILINE="line1\nline2"
+
+# Other backslash sequences remain unchanged
 TABS="col1\tcol2"
-QUOTES="He said \"hello\""
 
 # Inline comments (unquoted values only)
 KEY=value # this is a comment
@@ -277,20 +315,20 @@ URL=http://${HOST}:${PORT}
 
 ## Dotenv Compatibility
 
-Neo.env is a drop-in replacement for dotenv:
+Neo.env provides compatible `config()` and `parse()` APIs for common dotenv workflows:
 
 ```typescript
 // Before (dotenv)
 import dotenv from "dotenv";
 dotenv.config();
 
-// After (neo.env) - exact same API
+// After (neo.env)
 import dotenv from "@lpm.dev/neo.env";
 dotenv.config();
 
 // Or use named import
-import { loadSync } from "@lpm.dev/neo.env";
-loadSync();
+import { config } from "@lpm.dev/neo.env";
+config();
 ```
 
 Additional methods:
@@ -343,11 +381,11 @@ await dotenv.configAsync();
 dotenv.config({ expand: true });
 
 // Add schema validation
-const { parsed } = dotenv.config();
+const { parsed = {} } = dotenv.config();
 const result = dotenv.validate(parsed, schema);
 ```
 
-That's it! All existing dotenv code continues to work.
+The package does not implement dotenv vault decryption or `populate()`.
 
 ## TypeScript
 
@@ -357,8 +395,12 @@ Neo.env is written in TypeScript and provides full type definitions:
 import type {
   LoadOptions,
   LoadResult,
+  ConfigResult,
+  ParseError,
   ParseResult,
+  ExpandOptions,
   Schema,
+  InferSchema,
   ValidationResult,
 } from "@lpm.dev/neo.env";
 
@@ -371,30 +413,34 @@ const options: LoadOptions = {
 const result: LoadResult = await load(options);
 
 // Type-safe schema
-const schema: Schema = {
+const schema = {
   PORT: { type: "number", required: true },
   DEBUG: { type: "boolean" },
-};
+} satisfies Schema;
 
-const validation: ValidationResult = validate(result.parsed, schema);
+type Configuration = InferSchema<typeof schema>;
+const validation: ValidationResult<Configuration> = validate(result.parsed, schema);
+const port: number = validation.values.PORT;
+const debug: boolean | undefined = validation.values.DEBUG;
 ```
 
 ## Performance
 
-Neo.env is designed for performance:
+Five local benchmark trials produced these median parser results:
 
-- **~1.24x faster** than dotenv for small files
-- **Competitive** performance for large files
-- **Modern regex** instead of stateful parsing
-- **Single-pass parsing** for efficiency
+- **Three entries**: 2.55 million operations per second
+- **100 entries**: 98,978 operations per second
+- **Example production file**: 548,383 operations per second
+- **Expansion only**: 544,641 operations per second
 
-See [BENCHMARKS.md](./BENCHMARKS.md) for detailed performance comparison.
+These values apply only to the recorded hardware and Node.js version.
+See [BENCHMARKS.md](./BENCHMARKS.md) for the ranges and method.
 
 ## Bundle Size
 
-- **ESM**: 7.9 KB
-- **CommonJS**: 8.1 KB
-- **Types**: 2.9 KB
+- **ESM**: 14,459 bytes
+- **CommonJS**: 16,387 bytes
+- **Types**: 5,458 bytes per format
 
 Despite having more features than dotenv (async API, variable interpolation, schema validation), neo.env maintains a small bundle size.
 
@@ -424,12 +470,14 @@ console.log(process.env.DATABASE_URL); // postgres://localhost:5432/mydb
 ### With Schema Validation
 
 ```typescript
+import { load, validate, type Schema } from "@lpm.dev/neo.env";
+
 const { parsed } = await load();
 
 const schema = {
   PORT: { type: "number", required: true },
   NODE_ENV: { enum: ["development", "production"] },
-};
+} satisfies Schema;
 
 const result = validate(parsed, schema);
 if (!result.valid) {
@@ -468,16 +516,16 @@ Neo.env modernizes dotenv with:
 
 ### Is it compatible with dotenv?
 
-Yes! 100% compatible. It's a drop-in replacement.
+The `config()` and `parse()` APIs support common dotenv workflows. Vault decryption and `populate()` are not supported.
 
 ### Can I use it in production?
 
 Yes! Neo.env is production-ready with:
 
-- 97 passing tests
-- 100% type coverage
-- Comprehensive error handling
-- Battle-tested parsing logic
+- 119 automated tests
+- Strict TypeScript checks
+- ESM and CommonJS package tests
+- Differential parser tests against dotenv
 
 ### Does it support multiline values?
 
@@ -489,7 +537,7 @@ MULTILINE="line1\nline2\nline3"
 
 ### How do I disable variable expansion?
 
-Don't pass `expand: true` to load options. Expansion is opt-in.
+Do not pass `expand: true` to load options. Expansion is opt-in.
 
 ## License
 

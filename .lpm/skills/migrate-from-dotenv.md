@@ -1,6 +1,6 @@
 ---
 name: migrate-from-dotenv
-description: Step-by-step guide for migrating from dotenv to neo.env — drop-in config() compatibility, built-in variable expansion (replaces dotenv-expand), built-in schema validation (replaces envalid/zod), async API, import changes, and migration checklist
+description: Step-by-step guide for migrating common dotenv config() workflows to neo.env, with variable expansion, schema validation, async API, import changes, and a migration checklist
 version: "1.0.0"
 globs:
   - "**/*.ts"
@@ -14,7 +14,7 @@ globs:
 | Aspect | dotenv | dotenv + dotenv-expand + envalid | neo.env |
 |--------|--------|----------------------------------|---------|
 | Packages needed | 1 | 3 | 1 |
-| Bundle size | ~6 KB | ~15 KB combined | ~8 KB |
+| Bundle size | ~6 KB | ~15 KB combined | ~15 KB |
 | Dependencies | 0 | 2+ | 0 |
 | Async API | No | No | Yes (`load()`) |
 | Variable expansion | No (needs dotenv-expand) | Yes (separate package) | Yes (built-in) |
@@ -22,18 +22,18 @@ globs:
 | Schema validation | No (needs envalid/zod) | Yes (separate package) | Yes (built-in) |
 | Type coercion | No | Via envalid | Yes (number, boolean, url, email, json) |
 | TypeScript | Ambient types | Mixed | Native strict mode |
-| Performance | Baseline | N/A | 1.06-1.24x faster (small files) |
+| Performance | Baseline | N/A | Measured in five local trials |
 
-## Step 1: Drop-In Replacement
+## Step 1: Replace the Config API
 
-The simplest migration — change the import and everything works:
+For common config workflows, change the import:
 
 ```typescript
 // Before (dotenv)
 import dotenv from 'dotenv'
 dotenv.config()
 
-// After (neo.env) — 100% compatible
+// After (neo.env) — compatible config() contract
 import env from '@lpm.dev/neo.env'
 env.config()
 ```
@@ -46,11 +46,13 @@ import { config } from 'dotenv'
 config()
 
 // After (neo.env)
-import { loadSync } from '@lpm.dev/neo.env'
-loadSync()
+import { config } from '@lpm.dev/neo.env'
+config()
 ```
 
-Both use the same defaults: reads `.env` from the current working directory, does not override existing `process.env` values.
+Both APIs read `.env` from the current directory. They preserve existing `process.env` values by default.
+
+`config()` keeps dotenv partial parsing. The native `load()` and `loadSync()` APIs do not change the environment when format errors exist.
 
 ## Step 2: Replace dotenv-expand
 
@@ -136,13 +138,13 @@ if (!valid) {
 ### Differences from envalid
 
 - **Default values**: neo.env defaults are strings (coerced after), envalid defaults are typed
-- **Error handling**: neo.env collects all errors in an array, envalid throws on first error
+- **Error handling**: neo.env collects validation errors, while envalid throws on the first error
 - **Custom reporters**: Not supported in neo.env (use the `errors` array directly)
 - **Middleware**: Not supported — use `transform` for custom processing
 
 ## Step 4: Use the Async API (Optional)
 
-neo.env provides a non-blocking async API that dotenv doesn't have:
+neo.env provides a non-blocking async API that dotenv does not have:
 
 ```typescript
 // Before (dotenv) — always synchronous, blocks event loop
@@ -170,7 +172,6 @@ dotenv.config({
   path: '.env.local',          // ✓ Same: path
   encoding: 'latin1',          // ✓ Same: encoding
   override: true,              // ✓ Same: override
-  debug: true,                 // ✓ Same: debug (via ParseOptions)
 })
 
 // neo.env equivalent
@@ -179,6 +180,7 @@ loadSync({
   encoding: 'latin1',
   override: true,
   expand: true,                // NEW: built-in expansion (opt-in)
+  allowPartial: false,         // NEW: atomic format-error handling
 })
 ```
 
@@ -190,11 +192,14 @@ import { parse } from 'dotenv'
 const parsed = parse('KEY=value\nOTHER=data')
 // Returns: { KEY: 'value', OTHER: 'data' }
 
-// After (neo.env) — same, but also returns errors
+// After (neo.env) — same result shape
 import { parse } from '@lpm.dev/neo.env'
-const { parsed, errors } = parse('KEY=value\nOTHER=data')
-// parsed: { KEY: 'value', OTHER: 'data' }
-// errors: [] (line-number-annotated parse errors)
+const parsed = parse('KEY=value\nOTHER=data')
+// Returns: { KEY: 'value', OTHER: 'data' }
+
+// Use the detailed API for line-numbered errors
+import { parseDetailed } from '@lpm.dev/neo.env'
+const { parsed: detailed, errors } = parseDetailed('KEY=value\nOTHER=data')
 ```
 
 ## What's NOT in neo.env
@@ -209,12 +214,12 @@ const { parsed, errors } = parse('KEY=value\nOTHER=data')
 ## Migration Checklist
 
 - [ ] Replace `import dotenv from 'dotenv'` with `import env from '@lpm.dev/neo.env'` (or named imports)
-- [ ] Replace `dotenv.config()` with `env.config()` or `loadSync()`
+- [ ] Replace `dotenv.config()` with `env.config()` or named `config()`
 - [ ] Remove `dotenv-expand` — use `load({ expand: true })` instead
 - [ ] Remove `envalid` / validation package — use `validate()` instead
 - [ ] Add `{ expand: true }` to load options if you were using dotenv-expand
 - [ ] Convert envalid validators to neo.env schema fields
 - [ ] Consider switching to async `load()` for non-blocking startup
-- [ ] Handle file-not-found errors (neo.env throws, doesn't silently skip)
+- [ ] If you use `load()` or `loadSync()`, handle file errors
 - [ ] Remove `dotenv`, `dotenv-expand`, `envalid`, `@types/dotenv` from dependencies
 - [ ] Add `@lpm.dev/neo.env` to dependencies

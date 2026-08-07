@@ -1,24 +1,39 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
+This file records notable changes to the package.
+The format follows [Keep a Changelog](https://keepachangelog.com/).
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/).
+## [Unreleased]
 
-## [0.1.0] - 2026-03-09
+## [1.0.0] - 2026-08-07
 
 ### Added
 
-- `load(options?)` — Async `.env` file loader with `path`, `encoding`, `override`, `expand` options
-- `loadSync(options?)` — Synchronous loader for dotenv API compatibility
-- `parse(content, options?)` — Parse `.env` content string into key-value pairs
-- `expand(parsed, options?)` — Variable interpolation: `$VAR`, `${VAR}`, `${VAR:-default}` syntax
-- `validate(parsed, schema)` — Schema-based validation and type coercion (`string`, `number`, `boolean`, `url`, `email`, `json`)
-- Schema features: `required`, `default`, `enum`, `pattern`, `transform`
-- Default export with `config()` / `configAsync()` / `parse()` / `expand()` / `validate()` for dotenv drop-in compatibility
-- Auto-load via `import '@lpm.dev/neo.env/config'`
-- `.env` syntax support: comments, quoted values (single/double/backtick), escape sequences, inline comments, `export` prefix, whitespace trimming
-- Full TypeScript types: `LoadOptions`, `LoadResult`, `ParseResult`, `Schema`, `ValidationResult`
-- Zero runtime dependencies
-- ESM + CJS dual output with TypeScript declaration files
-- Source maps for debugging
-- 97 tests across parser, expander, validator, and loader
+- Added async and synchronous `.env` file loaders.
+- Added dotenv-compatible `config()` and `parse()` functions.
+- Added `parseDetailed()` with line numbers and stable error codes.
+- Added recursive variable expansion with defaults and escaped-dollar support.
+- Added cycle detection, depth limits, output limits, and memoized references.
+- Added schema validation, type coercion, defaults, patterns, enums, and transforms.
+- Added schema-driven TypeScript inference for validated values.
+- Added ESM, CommonJS, declarations, and a side-effect configuration entry.
+- Added LPM dependency locking, security audits, and package validation.
+- Added CI for Node.js 18, 20, 22, and 24.
+
+### Changed
+
+- Applied schema defaults before validation and coercion.
+- Applied override rules before variable expansion.
+- Made native loads atomic when format errors exist.
+- Limited number validation to finite decimal and exponent syntax.
+- Separated expansion-only and parse-and-expand benchmarks.
+- Reported benchmark medians and ranges from five independent runs.
+
+### Fixed
+
+- Prevented parser errors from exposing environment values.
+- Prevented prototype-like keys from changing object prototypes.
+- Made stateful regular-expression validation deterministic.
+- Added named and default exports for ESM and CommonJS consumers.
+- Added staged-package tests for both package formats.
+- Removed the CommonJS mixed-export build warning without changing the exports.

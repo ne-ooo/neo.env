@@ -1,4 +1,12 @@
-import type { Schema, ValidationResult, ValidationError } from '../types.js'
+import type {
+  InferSchema,
+  Schema,
+  ValidationResult,
+  ValidationError,
+} from '../types.js'
+import { setOwn } from './record.js'
+
+const DECIMAL_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
 
 /**
  * Validate and coerce environment variables against a schema
@@ -7,30 +15,28 @@ import type { Schema, ValidationResult, ValidationError } from '../types.js'
  * @param schema - Validation schema
  * @returns Validation result with coerced values and errors
  */
-export function validate(
+export function validate<const TSchema extends Schema>(
   parsed: Record<string, string>,
-  schema: Schema
-): ValidationResult {
+  schema: TSchema
+): ValidationResult<InferSchema<TSchema>> {
   const errors: ValidationError[] = []
-  const values: Record<string, any> = {}
+  const values: Record<string, unknown> = {}
 
   // Check each schema field
   for (const [key, field] of Object.entries(schema)) {
-    const rawValue = parsed[key]
+    let rawValue = Object.hasOwn(parsed, key) ? parsed[key] : undefined
 
-    // Check required
-    if (field.required && !rawValue) {
-      errors.push({
-        key,
-        message: `Required field "${key}" is missing`,
-      })
-      continue
+    // Apply defaults before validation and type coercion.
+    if (!rawValue && field.default !== undefined) {
+      rawValue = field.default
     }
 
-    // Use default if not provided
     if (!rawValue) {
-      if (field.default !== undefined) {
-        values[key] = field.default
+      if (field.required) {
+        errors.push({
+          key,
+          message: `Required field "${key}" is missing`,
+        })
       }
       continue
     }
@@ -45,16 +51,20 @@ export function validate(
     }
 
     // Check pattern
-    if (field.pattern && !field.pattern.test(rawValue)) {
-      errors.push({
-        key,
-        message: `"${key}" does not match required pattern`,
-      })
-      continue
+    if (field.pattern) {
+      const pattern = new RegExp(field.pattern.source, field.pattern.flags)
+      const matches = pattern.test(rawValue)
+      if (!matches) {
+        errors.push({
+          key,
+          message: `"${key}" does not match required pattern`,
+        })
+        continue
+      }
     }
 
     // Type coercion
-    let finalValue: any = rawValue
+    let finalValue: unknown = rawValue
 
     if (field.transform) {
       try {
@@ -69,11 +79,18 @@ export function validate(
     } else if (field.type) {
       switch (field.type) {
         case 'number': {
-          finalValue = Number(rawValue)
-          if (Number.isNaN(finalValue)) {
+          if (!DECIMAL_NUMBER.test(rawValue)) {
             errors.push({
               key,
               message: `"${key}" must be a valid number`,
+            })
+            continue
+          }
+          finalValue = Number(rawValue)
+          if (!Number.isFinite(finalValue)) {
+            errors.push({
+              key,
+              message: `"${key}" must be a finite number`,
             })
             continue
           }
@@ -143,12 +160,12 @@ export function validate(
       }
     }
 
-    values[key] = finalValue
+    setOwn(values, key, finalValue)
   }
 
   return {
     valid: errors.length === 0,
     errors,
-    values,
+    values: values as InferSchema<TSchema>,
   }
 }

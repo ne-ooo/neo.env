@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { writeFileSync, unlinkSync, existsSync } from 'node:fs'
 import { resolve, join } from 'node:path'
-import { load, loadSync } from '../../src/core/loader.js'
+import { config, load, loadSync } from '../../src/core/loader.js'
 
 describe('loader', () => {
   const originalEnv = { ...process.env }
@@ -71,6 +71,87 @@ describe('loader', () => {
       const result = loadSync({ path: testEnvPath })
 
       expect(result.parsed.URL).toBe('http://${HOST}')
+    })
+
+    it('should use existing environment values during expansion', () => {
+      const targetEnv = { HOST: 'runtime.example' }
+      writeFileSync(testEnvPath, 'HOST=file.example\nURL=https://${HOST}')
+
+      const result = loadSync({
+        path: testEnvPath,
+        expand: true,
+        processEnv: targetEnv,
+      })
+
+      expect(targetEnv.HOST).toBe('runtime.example')
+      expect(targetEnv.URL).toBe('https://runtime.example')
+      expect(result.parsed.URL).toBe('https://runtime.example')
+    })
+
+    it('should use file values during expansion when override is true', () => {
+      const targetEnv = { HOST: 'runtime.example' }
+      writeFileSync(testEnvPath, 'HOST=file.example\nURL=https://${HOST}')
+
+      loadSync({
+        path: testEnvPath,
+        expand: true,
+        override: true,
+        processEnv: targetEnv,
+      })
+
+      expect(targetEnv.HOST).toBe('file.example')
+      expect(targetEnv.URL).toBe('https://file.example')
+    })
+
+    it('should forward non-recursive expansion options', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'A=${B}\nB=${C}\nC=done')
+
+      const result = loadSync({
+        path: testEnvPath,
+        expand: true,
+        recursive: false,
+        processEnv: targetEnv,
+      })
+
+      expect(result.parsed.A).toBe('${C}')
+      expect(result.parsed.B).toBe('done')
+    })
+
+    it('should use and populate a custom process environment', () => {
+      const targetEnv = { OUTSIDE: 'custom' }
+      writeFileSync(testEnvPath, 'A=${OUTSIDE}')
+
+      loadSync({ path: testEnvPath, expand: true, processEnv: targetEnv })
+
+      expect(targetEnv.A).toBe('custom')
+      expect(process.env.A).toBeUndefined()
+    })
+
+    it('should forward expansion limits', () => {
+      writeFileSync(testEnvPath, 'VALUE=1234567890')
+
+      expect(() =>
+        loadSync({
+          path: testEnvPath,
+          expand: true,
+          maxOutputLength: 5,
+          processEnv: {},
+        })
+      ).toThrow('exceeded 5 characters')
+    })
+
+    it('should store prototype-like names without changing the prototype', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, '__proto__=proto\nconstructor=ctor\ntoString=text')
+
+      const result = loadSync({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(Object.getPrototypeOf(targetEnv)).toBe(Object.prototype)
+      expect(Object.hasOwn(targetEnv, '__proto__')).toBe(true)
+      expect(targetEnv.__proto__).toBe('proto')
+      expect(result.parsed.constructor).toBe('ctor')
+      expect(result.parsed.toString).toBe('text')
     })
 
     it('should throw error if file does not exist', () => {
@@ -151,15 +232,71 @@ describe('loader', () => {
   })
 
   describe('error reporting', () => {
-    it('should return errors for invalid lines', () => {
+    it('should not mutate the environment when parsing fails', () => {
+      const targetEnv: Record<string, string> = {}
       writeFileSync(testEnvPath, 'VALID=value\nINVALID LINE\nANOTHER=value')
 
-      const result = loadSync({ path: testEnvPath })
+      const result = loadSync({ path: testEnvPath, processEnv: targetEnv })
 
       expect(result.errors).toHaveLength(1)
+      expect(result.errors[0]?.code).toBe('INVALID_ENTRY')
       expect(result.errors[0]?.line).toBe(2)
       expect(result.parsed.VALID).toBe('value')
       expect(result.parsed.ANOTHER).toBe('value')
+      expect(targetEnv).toEqual({})
+    })
+
+    it('should allow partial mutation only when requested', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'VALID=value\nINVALID LINE')
+
+      const result = loadSync({
+        path: testEnvPath,
+        processEnv: targetEnv,
+        allowPartial: true,
+      })
+
+      expect(result.errors).toHaveLength(1)
+      expect(targetEnv.VALID).toBe('value')
+    })
+
+    it('should keep asynchronous loading atomic', async () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'VALID=value\nINVALID LINE')
+
+      const result = await load({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(result.errors).toHaveLength(1)
+      expect(targetEnv).toEqual({})
+    })
+  })
+
+  describe('dotenv-compatible config', () => {
+    it('should return a file error instead of throwing', () => {
+      const result = config({ path: '/nonexistent/.env' })
+
+      expect(result.parsed).toEqual({})
+      expect(result.error).toBeInstanceOf(Error)
+    })
+
+    it('should return parsed values when loading succeeds', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'KEY=value')
+
+      const result = config({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(result).toEqual({ parsed: { KEY: 'value' } })
+      expect(targetEnv.KEY).toBe('value')
+    })
+
+    it('should preserve dotenv partial parsing by default', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'VALID=value\nINVALID LINE')
+
+      const result = config({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(result.parsed).toEqual({ VALID: 'value' })
+      expect(targetEnv.VALID).toBe('value')
     })
   })
 

@@ -13,7 +13,7 @@ globs:
 
 ## Overview
 
-neo.env is a zero-dependency environment variable utility. It provides `.env` file loading (async + sync), variable interpolation (`${VAR:-default}`), and schema validation with type coercion. Drop-in replacement for dotenv with additional features.
+neo.env is a zero-dependency environment variable utility. It supports common dotenv `config()` and `parse()` workflows. It also provides async loading, interpolation, and schema validation.
 
 ## Loading .env Files
 
@@ -47,23 +47,28 @@ await load({
   encoding: 'utf8',           // File encoding (default: 'utf8')
   override: false,            // Override existing process.env vars (default: false)
   expand: false,              // Enable variable interpolation (default: false)
+  allowPartial: false,        // Apply valid entries when format errors exist
 })
 ```
+
+By default, `load()` and `loadSync()` do not change the environment when format errors exist. Use `allowPartial: true` to apply valid entries.
 
 ### Dotenv compatibility
 
 ```typescript
 import env from '@lpm.dev/neo.env'
 
-// Drop-in replacement for dotenv.config()
-env.config()                  // Sync, same as loadSync()
-await env.configAsync()       // Async, same as load()
+// Dotenv-compatible config result
+const { parsed, error } = env.config()
+await env.configAsync()       // Async neo.env API
 ```
+
+`config()` permits partial parsing by default for dotenv compatibility. Use `allowPartial: false` to prevent partial changes.
 
 ## Parsing .env Content
 
 ```typescript
-import { parse } from '@lpm.dev/neo.env'
+import { parse, parseDetailed } from '@lpm.dev/neo.env'
 
 const content = `
 # Database config
@@ -76,9 +81,15 @@ API_KEY="sk-abc123"
 SECRET='my secret value'
 `
 
-const { parsed, errors } = parse(content)
+const parsed = parse(content)
 // parsed: { DB_HOST: 'localhost', DB_PORT: '5432', DB_NAME: 'myapp', API_KEY: 'sk-abc123', SECRET: 'my secret value' }
+
+const detailed = parseDetailed(content)
+// detailed: { parsed, errors }
+// error: { code: 'INVALID_ENTRY', line, message: 'Invalid environment entry' }
 ```
+
+Format-error messages do not contain source values.
 
 ### Supported syntax
 
@@ -93,11 +104,11 @@ KEY="double quoted"
 KEY='single quoted'
 KEY=`backtick quoted`
 
-# Escape sequences (in double quotes)
-KEY="line1\nline2"            # Newline
-KEY="tab\there"               # Tab
-KEY="escaped\\backslash"      # Backslash
-KEY="escaped\"quote"          # Quote
+# Double-quoted \n and \r sequences become line breaks
+LINES="line1\nline2\rline3"
+
+# Other backslash sequences remain unchanged
+TAB="tab\there"
 
 # Export prefix (ignored)
 export KEY=value              # Same as KEY=value
@@ -118,7 +129,7 @@ await load({ expand: true })
 
 // Or manually
 import { parse, expand } from '@lpm.dev/neo.env'
-const { parsed } = parse(content)
+const parsed = parse(content)
 const expanded = expand(parsed)
 ```
 
@@ -142,17 +153,24 @@ DB_URL=postgres://${HOST:-localhost}:${PORT:-5432}/${DB_NAME:-myapp}
 ### Expansion behavior
 
 - **Lookup order**: parsed values (first) → `process.env` → default value
-- **Recursive expansion**: Enabled by default, max depth 10 (prevents infinite loops)
+- **Recursive expansion**: Enabled by default, max depth 64
+- **Cycle handling**: Cycles throw `ExpansionError`
+- **Output limit**: Each expanded value is limited to 1,048,576 characters
 - **Unresolved variables**: Left as-is if not found and no default
 - **`$VAR` syntax**: Only matches uppercase variable names (`[A-Z_][A-Z0-9_]*`)
 - **`${VAR}` syntax**: Matches any variable name (no case restriction)
 
+When `load()` expands values, it applies `override` first. Existing environment values win when `override` is `false`.
+
 ```typescript
 // Disable recursive expansion
-const expanded = expand(parsed, { recursive: false })
+const nonRecursive = expand(parsed, { recursive: false })
 
 // Provide custom process.env lookup
-const expanded = expand(parsed, { processEnv: { HOST: 'custom.host' } })
+const customEnvironment = expand(parsed, { processEnv: { HOST: 'custom.host' } })
+
+// Configure safety limits
+const limited = expand(parsed, { maxDepth: 32, maxOutputLength: 262144 })
 ```
 
 ## Schema Validation
@@ -189,11 +207,13 @@ const debug: boolean = result.values.DEBUG    // false (not 'false')
 | Type | Input | Output |
 |------|-------|--------|
 | `string` | `'hello'` | `'hello'` (no change) |
-| `number` | `'3000'` | `3000` |
+| `number` | `'3000'`, `'1.5e2'` | `3000`, `150` |
 | `boolean` | `'true'`, `'false'`, `'1'`, `'0'` | `true`, `false` (case-insensitive) |
 | `url` | `'https://example.com'` | `'https://example.com'` (validated via `new URL()`) |
 | `email` | `'user@example.com'` | `'user@example.com'` (validated via regex) |
 | `json` | `'{"key":"val"}'` | `{ key: 'val' }` (parsed via `JSON.parse()`) |
+
+Number validation rejects hexadecimal, binary, octal, and non-finite values.
 
 ### Schema field options
 
@@ -204,9 +224,15 @@ const debug: boolean = result.values.DEBUG    // false (not 'false')
   default?: string,          // Use if missing (as string, then coerced)
   enum?: string[],           // Must be one of these values
   pattern?: RegExp,          // Must match this regex
-  transform?: (value: string) => any,  // Custom transformation
+  transform?: (value: string) => unknown,  // Custom transformation
 }
 ```
+
+`validate()` infers each output type from the schema literal.
+Required fields and fields with defaults are required in the output type.
+Other fields are optional.
+The return type of `transform` takes priority over `type`.
+JSON output is `unknown` until application code narrows it.
 
 ## Complete Pipeline
 
@@ -240,13 +266,16 @@ startServer(values.PORT, values.DATABASE_URL)
 
 ```typescript
 import type {
-  LoadOptions,        // { path?, encoding?, override?, expand? }
+  LoadOptions,        // File, override, partial-load, expansion, environment, and limit options
   LoadResult,         // { parsed, errors }
   ParseOptions,       // { debug?, multiline? }
   ParseResult,        // { parsed, errors }
-  ExpandOptions,      // { processEnv?, parsed?, recursive? }
+  ParseError,         // { code, line, message }
+  ExpandOptions,      // { processEnv?, parsed?, recursive?, maxDepth?, maxOutputLength? }
   Schema,             // Record<string, SchemaField>
   SchemaField,        // { type?, required?, default?, enum?, pattern?, transform? }
+  InferSchema,        // Output values inferred from a schema
+  InferSchemaField,   // Output value inferred from one schema field
   ValidationResult,   // { valid, errors, values }
   ValidationError,    // { key, message }
 } from '@lpm.dev/neo.env'

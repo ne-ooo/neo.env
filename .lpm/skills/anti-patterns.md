@@ -1,6 +1,6 @@
 ---
 name: anti-patterns
-description: Common mistakes when using neo.env — expansion is opt-in, override defaults to false, $VAR only matches uppercase, unresolved variables left as-is, recursive expansion max depth 10, email validation is simple regex, JSON type requires strict JSON, file-not-found throws
+description: Common mistakes when using neo.env — expansion is opt-in, override defaults to false, $VAR only matches uppercase, unresolved variables stay literal, expansion limits throw, email validation is simple regex, JSON requires strict syntax, load file errors throw
 version: "1.0.0"
 globs:
   - "**/*.ts"
@@ -65,7 +65,7 @@ console.log(process.env.PORT)
 
 By default, `load()` and `loadSync()` do not overwrite variables that already exist in `process.env`. This is the same behavior as dotenv. Use `override: true` only when you specifically want `.env` file values to take precedence.
 
-Source: `src/core/loader.ts` — `if (!options.override && key in process.env) continue`
+Source: `src/core/loader.ts` — the loader uses `override` to build the effective environment
 
 ### [HIGH] `$VAR` syntax only matches uppercase variable names
 
@@ -167,42 +167,70 @@ try {
 
 Both `load()` and `loadSync()` throw when the file is not found. This differs from some dotenv configurations that silently ignore missing files. Always handle the error or check file existence before loading.
 
+Use `config()` when you need the dotenv-compatible `{ parsed, error }` result.
+
 Source: `src/core/loader.ts` — `fs.readFileSync` / `fs.promises.readFile` without try/catch
 
-### [MEDIUM] Recursive expansion has max depth 10
+### [MEDIUM] Partial loading requires explicit permission
 
 Wrong:
 
 ```typescript
-// .env file with deep chain:
-// A=${B}
-// B=${C}
-// C=${D}
-// ... (more than 10 levels deep)
-// K=value
-
-const { parsed } = await load({ expand: true })
-// Variables beyond depth 10 are left unexpanded
-// No error thrown — silently stops recursing
+await load({ allowPartial: true })
+// Valid entries change the environment when another entry has a format error.
 ```
 
 Correct:
 
 ```typescript
-// Keep variable chains shallow (< 10 levels)
-// Typical use: 2-3 levels deep
+const { errors } = await load()
+
+if (errors.length > 0) {
+  // The environment is unchanged.
+}
+```
+
+`load()` and `loadSync()` are atomic for format errors by default. If partial changes are safe, use `allowPartial: true`.
+
+The dotenv-compatible `config()` function permits partial parsing by default. If atomic behavior is required, use `allowPartial: false`.
+
+Source: `src/core/loader.ts` — `processContent()` returns before expansion and mutation when format errors exist
+
+### [MEDIUM] Recursive expansion rejects cycles and configured limits
+
+Wrong:
+
+```typescript
+// .env file with a cycle:
+// A=${B}
+// B=${A}
+
+const { parsed } = await load({ expand: true })
+// Throws ExpansionError with code CYCLE
+```
+
+Correct:
+
+```typescript
+// Keep variable chains shallow.
 HOST=localhost
 PORT=5432
 DB_URL=postgres://${HOST}:${PORT}/mydb  // 1 level — fine
 
+// Configure the limits when your data needs different values:
+const expanded = expand(parsed, {
+  maxDepth: 32,
+  maxOutputLength: 262144,
+})
+
 // If you don't need recursive expansion:
-const expanded = expand(parsed, { recursive: false })
+const nonRecursive = expand(parsed, { recursive: false })
 // Only expands one level of references
 ```
 
-Recursive expansion is capped at depth 10 to prevent infinite loops (e.g., `A=${B}`, `B=${A}`). Variables referencing chains deeper than 10 levels are left with unexpanded references. This limit is hardcoded and not configurable.
+Recursive expansion detects cycles. The default depth is 64. Each expanded value is limited to 1,048,576 characters.
 
-Source: `src/core/expander.ts` — max depth 10 constant
+Source: `src/core/expander.ts` — `ExpansionError` reports cycles and exhausted limits
 
 ### [MEDIUM] Email validation uses a simple regex — not RFC 5322
 
@@ -284,7 +312,7 @@ Wrong:
 // KEY="value # not a comment"
 // OTHER=value # this IS a comment
 
-const { parsed } = parse('KEY="value # not a comment"\nOTHER=value # this IS a comment')
+const parsed = parse('KEY="value # not a comment"\nOTHER=value # this IS a comment')
 parsed.KEY    // 'value # not a comment' (preserved — inside quotes)
 parsed.OTHER  // 'value' (comment stripped — unquoted)
 ```
@@ -300,6 +328,6 @@ Correct:
 // KEY="value#with#hashes"
 ```
 
-The parser strips inline comments (` # ...`) from unquoted values only. Inside quoted values (single, double, or backtick), the `#` character is part of the value. This is consistent with dotenv behavior but can surprise when switching between quoted and unquoted formats.
+The parser strips comments from unquoted values. Inside quoted values, the `#` character is part of the value.
 
 Source: `src/core/parser.ts` — inline comment handling in unquoted value regex
