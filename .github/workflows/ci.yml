@@ -23,7 +23,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ["18.20.8", "20", "22", "24"]
+        include:
+          - node: "18.20.8"
+            # minimatch supports Node 18, but its brace-expansion dependency
+            # declares Node 20. The test run still proves runtime compatibility.
+            install_args: "--no-engine-strict"
+          - node: "20"
+            install_args: ""
+          - node: "22"
+            install_args: ""
+          - node: "24"
+            install_args: ""
 
     steps:
       - name: Check out repository
@@ -38,7 +48,7 @@ jobs:
         run: npm install --global "@lpm-registry/cli@${LPM_VERSION}"
 
       - name: Install locked dependencies
-        run: lpm ci --no-skills --no-editor-setup --no-security-summary
+        run: lpm ci --no-skills --no-editor-setup --no-security-summary ${{ matrix.install_args }}
 
       - name: Make sure that the lockfile is unchanged
         run: git diff --exit-code -- package.json lpm.lock
