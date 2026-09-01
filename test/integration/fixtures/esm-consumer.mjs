@@ -24,8 +24,9 @@ assert.equal(validate({ PORT: '3000' }, { PORT: { type: 'number' } }).values.POR
 
 const prototypeNames = parse('__proto__=proto\nconstructor=ctor\ntoString=text')
 assert.equal(Object.getPrototypeOf(prototypeNames), Object.prototype)
-assert.equal(Object.hasOwn(prototypeNames, '__proto__'), true)
-assert.equal(prototypeNames.__proto__, 'proto')
+assert.equal(Object.hasOwn(prototypeNames, '__proto__'), false)
+assert.equal(prototypeNames.constructor, 'ctor')
+assert.equal(prototypeNames.toString, 'text')
 
 const atomicEnvironment = {}
 writeFileSync('.env', 'VALID=value\nINVALID LINE')

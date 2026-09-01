@@ -308,6 +308,106 @@ describe('expander', () => {
       )
     })
 
+    it('should reject aggregate output that exceeds the configured limit', () => {
+      const parsed = {
+        BASE: '12345',
+        FIRST: '${BASE}',
+        SECOND: '${BASE}',
+      }
+
+      let error: unknown
+      try {
+        expand(parsed, {
+          processEnv: {},
+          maxOutputLength: 10,
+          maxTotalOutputLength: 12,
+        })
+      } catch (caught) {
+        error = caught
+      }
+
+      expect(error).toBeInstanceOf(ExpansionError)
+      expect(error).toMatchObject({
+        code: 'MAX_TOTAL_OUTPUT_LENGTH',
+        variable: 'SECOND',
+      })
+      expect((error as Error).message).toContain('exceeded 12 total characters')
+    })
+
+    it('should reject excessive intermediate expansion work', () => {
+      const processEnv = {
+        A: `x\${B}`,
+        B: `x\${C}`,
+        C: '12345678',
+      }
+
+      expect(() =>
+        expand(
+          { VALUE: '${A}' },
+          {
+            processEnv,
+            maxOutputLength: 20,
+            maxTotalOutputLength: 20,
+            maxExpansionWorkLength: 15,
+          }
+        )
+      ).toThrow('exceeded 15 intermediate characters')
+    })
+
+    it('should charge token scans that resolve to empty output', () => {
+      const value = '$EMPTY'.repeat(10)
+
+      expect(() =>
+        expand(
+          { VALUE: value },
+          {
+            processEnv: { EMPTY: '' },
+            maxExpansionWorkLength: value.length - 1,
+          }
+        )
+      ).toThrow(`exceeded ${value.length - 1} intermediate characters`)
+    })
+
+    it('should charge non-recursive reference unescaping', () => {
+      const referenced = '\\$'.repeat(100)
+
+      expect(() =>
+        expand(
+          { VALUE: '${A}' },
+          {
+            parsed: { A: referenced },
+            processEnv: {},
+            recursive: false,
+            maxOutputLength: 500,
+            maxTotalOutputLength: 500,
+            maxExpansionWorkLength: 150,
+          }
+        )
+      ).toThrow('exceeded 150 intermediate characters')
+    })
+
+    it('should reject unsafe custom recursion limits', () => {
+      expect(() => expand({ VALUE: 'safe' }, { maxDepth: 257 })).toThrow(
+        'maxDepth must be at most 256'
+      )
+    })
+
+    it('should report the configured depth limit before the call stack overflows', () => {
+      const parsed = Object.fromEntries(
+        Array.from({ length: 258 }, (_, index) => [
+          `KEY_${index}`,
+          index === 257 ? 'done' : `\${KEY_${index + 1}}`,
+        ])
+      )
+
+      expect(() =>
+        expand(parsed, { processEnv: {}, maxDepth: 256 })
+      ).toThrowError(ExpansionError)
+      expect(() =>
+        expand(parsed, { processEnv: {}, maxDepth: 256 })
+      ).toThrow('exceeded a depth of 256')
+    })
+
     it('should reject self-amplifying references before allocation grows', () => {
       const parsed = {
         A: '$A$A$A',
@@ -335,6 +435,45 @@ describe('expander', () => {
       expect(result.PATH_999).toBe('/srv/application/shared/service-999')
     })
 
+    it('should not inspect unrelated process environment values', () => {
+      const processEnv: Record<string, string> = {}
+      Object.defineProperty(processEnv, 'UNRELATED', {
+        enumerable: true,
+        get() {
+          throw new Error('Unrelated environment value was read')
+        },
+      })
+
+      expect(expand({ STATIC: 'value' }, { processEnv })).toEqual({
+        STATIC: 'value',
+      })
+    })
+
+    it('should preserve escaped dollars when all private-use characters exist', () => {
+      const privateUseCharacters = Array.from({ length: 0x1900 }, (_, index) =>
+        String.fromCodePoint(0xe000 + index)
+      ).join('')
+
+      const result = expand(
+        { TOKEN: 'secret', VALUE: `${privateUseCharacters}\\$TOKEN` },
+        { processEnv: {} }
+      )
+
+      expect(result.VALUE).toBe(`${privateUseCharacters}$TOKEN`)
+    })
+
+    it('should scan malformed braced references in linear time', () => {
+      const malformedNames = '${'.repeat(100_000)
+      const malformedDefaults = '${MISSING:-'.repeat(20_000)
+
+      expect(expand({ VALUE: malformedNames }, { processEnv: {} }).VALUE).toBe(
+        malformedNames
+      )
+      expect(
+        expand({ VALUE: malformedDefaults }, { processEnv: {} }).VALUE
+      ).toBe(malformedDefaults)
+    })
+
     it('should handle mixed syntax in same value', () => {
       const parsed = {
         HOST: 'localhost',
@@ -356,19 +495,16 @@ describe('expander', () => {
       expect(result.VALUE).toBe('${toString}:${constructor}:${__proto__}')
     })
 
-    it('should preserve own prototype-like names safely', () => {
+    it('should reject own __proto__ output keys', () => {
       const parsed: Record<string, string> = { VALUE: '${__proto__}' }
       Object.defineProperty(parsed, '__proto__', {
         value: 'safe',
         enumerable: true,
       })
 
-      const result = expand(parsed, { processEnv: {} })
-
-      expect(Object.getPrototypeOf(result)).toBe(Object.prototype)
-      expect(Object.hasOwn(result, '__proto__')).toBe(true)
-      expect(result.__proto__).toBe('safe')
-      expect(result.VALUE).toBe('safe')
+      expect(() => expand(parsed, { processEnv: {} })).toThrow(
+        'Environment keys cannot use "__proto__"'
+      )
     })
   })
 

@@ -264,6 +264,16 @@ describe('validator', () => {
       expect(result.errors[0]?.key).toBe('API_KEY')
       expect(result.errors[0]?.message).toContain('missing')
     })
+
+    it('should treat a present empty string as present', () => {
+      const result = validate(
+        { VALUE: '' },
+        { VALUE: { type: 'string', required: true, default: 'fallback' } }
+      )
+
+      expect(result.valid).toBe(true)
+      expect(result.values.VALUE).toBe('')
+    })
   })
 
   describe('default values', () => {
@@ -323,6 +333,13 @@ describe('validator', () => {
 
       expect(result.valid).toBe(true)
       expect(result.values.PORT).toBe(3000)
+    })
+
+    it('should preserve an empty string default', () => {
+      const result = validate({}, { VALUE: { default: '' } })
+
+      expect(result.valid).toBe(true)
+      expect(result.values).toEqual({ VALUE: '' })
     })
   })
 
@@ -402,7 +419,7 @@ describe('validator', () => {
       expect(result.errors).toHaveLength(2)
     })
 
-    it('should store an own __proto__ value without changing the prototype', () => {
+    it('should reject an own __proto__ schema field', () => {
       const parsed: Record<string, string> = {}
       const schema: Schema = {}
       Object.defineProperty(parsed, '__proto__', {
@@ -416,10 +433,12 @@ describe('validator', () => {
 
       const result = validate(parsed, schema)
 
-      expect(result.valid).toBe(true)
+      expect(result.valid).toBe(false)
       expect(Object.getPrototypeOf(result.values)).toBe(Object.prototype)
-      expect(Object.hasOwn(result.values, '__proto__')).toBe(true)
-      expect(result.values.__proto__).toBe('safe')
+      expect(Object.hasOwn(result.values, '__proto__')).toBe(false)
+      expect(result.errors[0]?.message).toBe(
+        'Environment keys cannot use "__proto__"'
+      )
     })
   })
 
@@ -452,6 +471,22 @@ describe('validator', () => {
 
       expect(result.valid).toBe(false)
       expect(result.errors[0]?.message).toContain('Transform failed')
+    })
+
+    it('should not expose transform error details', () => {
+      const result = validate(
+        { API_KEY: 'secret-canary' },
+        {
+          API_KEY: {
+            transform: (value) => {
+              throw new Error(`Rejected value: ${value}`)
+            },
+          },
+        }
+      )
+
+      expect(result.errors[0]?.message).toBe('Transform failed for "API_KEY"')
+      expect(JSON.stringify(result.errors)).not.toContain('secret-canary')
     })
   })
 

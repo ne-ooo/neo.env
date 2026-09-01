@@ -21,7 +21,6 @@ export type {
   LoadOptions,
   LoadResult,
   ConfigResult,
-  ParseOptions,
   ParseResult,
   ParseError,
   ParseErrorCode,

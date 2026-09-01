@@ -5,6 +5,38 @@ The format follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Added a 16 MiB default limit for the combined expansion output.
+- Added a 16 MiB default limit for cumulative intermediate expansion work.
+- Added a bounded terminal diagnostic when detailed parsing exceeds 100 errors.
+- Added scaling benchmarks for static expansion, unrelated environment values, and detailed parsing.
+
+### Changed
+
+- Limited custom expansion depth to 256 to prevent call-stack failures.
+- Rejected `__proto__` keys at input boundaries.
+- Rejected NUL characters during detailed parsing and file loading.
+- Removed transform exception details from public validation errors.
+- Made validation results discriminate complete success values from partial failure values.
+- Treated own empty strings as present during schema validation.
+- Removed unsupported `debug` and `multiline` parse options.
+- Pinned the patched `nanoid` 3.3.18 transitive development dependency.
+- Updated the CI and contributor LPM requirement for the v13 lockfile.
+
+### Fixed
+
+- Removed the escaped-dollar marker scan and its Unicode collision failure.
+- Avoided scans of unrelated environment values during expansion.
+- Added a fast path for static expansion values.
+- Replaced detailed-parser line searches with a monotonic cursor.
+- Replaced expansion token matching with a linear scanner.
+- Replaced detailed-parser line arrays and sets with an incremental gap scan.
+- Prevented horizontal parser whitespace from consuming later entries.
+- Corrected detailed error lines after blank input lines.
+- Counted token scanning toward expansion work and omitted empty output chunks.
+- Counted non-recursive reference unescaping toward expansion work.
+
 ## [1.0.0] - 2026-08-07
 
 ### Added

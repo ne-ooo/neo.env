@@ -141,17 +141,62 @@ describe('loader', () => {
       ).toThrow('exceeded 5 characters')
     })
 
-    it('should store prototype-like names without changing the prototype', () => {
+    it('should forward the aggregate expansion limit', () => {
+      writeFileSync(testEnvPath, 'BASE=12345\nFIRST=${BASE}\nSECOND=${BASE}')
+
+      expect(() =>
+        loadSync({
+          path: testEnvPath,
+          expand: true,
+          maxOutputLength: 10,
+          maxTotalOutputLength: 12,
+          processEnv: {},
+        })
+      ).toThrow('exceeded 12 total characters')
+    })
+
+    it('should forward the intermediate expansion-work limit', () => {
+      writeFileSync(testEnvPath, 'A=x${B}\nB=x${C}\nC=12345678\nVALUE=${A}')
+
+      expect(() =>
+        loadSync({
+          path: testEnvPath,
+          expand: true,
+          maxOutputLength: 50,
+          maxTotalOutputLength: 50,
+          maxExpansionWorkLength: 15,
+          processEnv: {},
+        })
+      ).toThrow('exceeded 15 intermediate characters')
+    })
+
+    it('should reject __proto__ without changing the target environment', () => {
       const targetEnv: Record<string, string> = {}
       writeFileSync(testEnvPath, '__proto__=proto\nconstructor=ctor\ntoString=text')
 
       const result = loadSync({ path: testEnvPath, processEnv: targetEnv })
 
       expect(Object.getPrototypeOf(targetEnv)).toBe(Object.prototype)
-      expect(Object.hasOwn(targetEnv, '__proto__')).toBe(true)
-      expect(targetEnv.__proto__).toBe('proto')
+      expect(Object.hasOwn(targetEnv, '__proto__')).toBe(false)
       expect(result.parsed.constructor).toBe('ctor')
       expect(result.parsed.toString).toBe('text')
+      expect(result.errors[0]?.message).toBe(
+        'Environment keys cannot use "__proto__"'
+      )
+      expect(targetEnv).toEqual({})
+    })
+
+    it('should reject NUL values without changing the environment', () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'GOOD=value\nBAD="before\0after"')
+
+      const result = loadSync({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(result.parsed).toEqual({ GOOD: 'value' })
+      expect(result.errors[0]?.message).toBe(
+        'Environment values cannot contain NUL characters'
+      )
+      expect(targetEnv).toEqual({})
     })
 
     it('should throw error if file does not exist', () => {
@@ -228,6 +273,18 @@ describe('loader', () => {
       const result = await load({ path: testEnvPath, encoding: 'utf8' })
 
       expect(result.parsed.KEY).toBe('value')
+    })
+
+    it('should reject NUL values atomically', async () => {
+      const targetEnv: Record<string, string> = {}
+      writeFileSync(testEnvPath, 'GOOD=value\nBAD="before\0after"')
+
+      const result = await load({ path: testEnvPath, processEnv: targetEnv })
+
+      expect(result.errors[0]?.message).toBe(
+        'Environment values cannot contain NUL characters'
+      )
+      expect(targetEnv).toEqual({})
     })
   })
 

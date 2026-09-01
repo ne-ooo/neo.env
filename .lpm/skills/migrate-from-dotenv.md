@@ -14,7 +14,7 @@ globs:
 | Aspect | dotenv | dotenv + dotenv-expand + envalid | neo.env |
 |--------|--------|----------------------------------|---------|
 | Packages needed | 1 | 3 | 1 |
-| Bundle size | ~6 KB | ~15 KB combined | ~15 KB |
+| Bundle size | ~6 KB | ~15 KB combined | 19.8 KiB main ESM |
 | Dependencies | 0 | 2+ | 0 |
 | Async API | No | No | Yes (`load()`) |
 | Variable expansion | No (needs dotenv-expand) | Yes (separate package) | Yes (built-in) |
@@ -152,15 +152,18 @@ import dotenv from 'dotenv'
 dotenv.config()
 
 // After (neo.env) — async, non-blocking
-import { load } from '@lpm.dev/neo.env'
+import { load, validate } from '@lpm.dev/neo.env'
 await load()
 
 // Or in app startup
 async function bootstrap() {
   await load({ expand: true })
 
-  const { values } = validate(process.env, schema)
-  return startServer(values)
+  const result = validate(process.env, schema)
+  if (!result.valid) {
+    throw new Error('Invalid environment configuration')
+  }
+  return startServer(result.values)
 }
 ```
 

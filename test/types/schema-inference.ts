@@ -27,6 +27,10 @@ const inferred = validate(
   schema
 )
 
+if (!inferred.valid) {
+  throw new Error('Expected the schema fixture to be valid')
+}
+
 const configuration: Configuration = inferred.values
 const typedResult: ValidationResult<Configuration> = inferred
 const port: number = configuration.PORT
@@ -36,6 +40,22 @@ const payload: unknown = configuration.PAYLOAD
 const tags: string[] = configuration.TAGS
 
 void [typedResult, port, debug, host, payload, tags]
+
+const invalid = validate({}, { PORT: { type: 'number', required: true } })
+if (invalid.valid) {
+  const validPort: number = invalid.values.PORT
+  void validPort
+} else {
+  const missingPort: number | undefined = invalid.values.PORT
+  void missingPort
+
+  // @ts-expect-error Failed validation can omit required values.
+  const unsafePort: number = invalid.values.PORT
+  void unsafePort
+}
+
+// Node's ProcessEnv values can be undefined and are accepted directly.
+validate(process.env, schema)
 
 // @ts-expect-error A number field does not produce a string.
 const invalidPort: string = configuration.PORT

@@ -16,7 +16,7 @@ const DECIMAL_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i
  * @returns Validation result with coerced values and errors
  */
 export function validate<const TSchema extends Schema>(
-  parsed: Record<string, string>,
+  parsed: Record<string, string | undefined>,
   schema: TSchema
 ): ValidationResult<InferSchema<TSchema>> {
   const errors: ValidationError[] = []
@@ -24,14 +24,22 @@ export function validate<const TSchema extends Schema>(
 
   // Check each schema field
   for (const [key, field] of Object.entries(schema)) {
+    if (key === '__proto__') {
+      errors.push({
+        key,
+        message: 'Environment keys cannot use "__proto__"',
+      })
+      continue
+    }
+
     let rawValue = Object.hasOwn(parsed, key) ? parsed[key] : undefined
 
     // Apply defaults before validation and type coercion.
-    if (!rawValue && field.default !== undefined) {
+    if (rawValue === undefined && field.default !== undefined) {
       rawValue = field.default
     }
 
-    if (!rawValue) {
+    if (rawValue === undefined) {
       if (field.required) {
         errors.push({
           key,
@@ -69,10 +77,10 @@ export function validate<const TSchema extends Schema>(
     if (field.transform) {
       try {
         finalValue = field.transform(rawValue)
-      } catch (err) {
+      } catch {
         errors.push({
           key,
-          message: `Transform failed for "${key}": ${err}`,
+          message: `Transform failed for "${key}"`,
         })
         continue
       }
@@ -163,9 +171,17 @@ export function validate<const TSchema extends Schema>(
     setOwn(values, key, finalValue)
   }
 
+  if (errors.length === 0) {
+    return {
+      valid: true,
+      errors: [],
+      values: values as InferSchema<TSchema>,
+    }
+  }
+
   return {
-    valid: errors.length === 0,
+    valid: false,
     errors,
-    values: values as InferSchema<TSchema>,
+    values: values as Partial<InferSchema<TSchema>>,
   }
 }

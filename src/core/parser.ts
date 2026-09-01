@@ -1,7 +1,14 @@
-import type { ParseError, ParseOptions, ParseResult } from '../types.js'
+import type { ParseError, ParseResult } from '../types.js'
 import { setOwn } from './record.js'
 
-const ENV_ENTRY_SOURCE = String.raw`^\s*(?:export\s+)?([\w.-]+)(?:\s*=\s*|:\s+)(\s*'(?:\\'|[^'])*'|\s*"(?:\\"|[^"])*"|\s*\x60(?:\\\x60|[^\x60])*\x60|[^#\r\n]+)?\s*(?:#.*)?$`
+const HORIZONTAL_WHITESPACE = String.raw`[^\S\r\n]`
+const ENV_ENTRY_SOURCE = String.raw`^${HORIZONTAL_WHITESPACE}*(?:export${HORIZONTAL_WHITESPACE}+)?([\w.-]+)(?:${HORIZONTAL_WHITESPACE}*=${HORIZONTAL_WHITESPACE}*|:${HORIZONTAL_WHITESPACE}+)(${HORIZONTAL_WHITESPACE}*'(?:\\'|[^'])*'|${HORIZONTAL_WHITESPACE}*"(?:\\"|[^"])*"|${HORIZONTAL_WHITESPACE}*\x60(?:\\\x60|[^\x60])*\x60|[^#\r\n]+)?${HORIZONTAL_WHITESPACE}*(?:#.*)?$`
+const MAX_PARSE_ERRORS = 100
+
+interface ParseDiagnostics {
+  errors: ParseError[]
+  truncated: boolean
+}
 
 /**
  * Parse .env content with the dotenv-compatible API.
@@ -17,27 +24,34 @@ export function parse(content: string | Buffer): Record<string, string> {
  * Parse .env content and return line-numbered format errors.
  *
  * @param content - The .env content to parse
- * @param options - Detailed parse options
  * @returns Parsed environment variables and format errors
  */
 export function parseDetailed(
-  content: string | Buffer,
-  options: ParseOptions = {}
+  content: string | Buffer
 ): ParseResult {
-  void options
   return parseContent(content, true)
 }
 
 function parseContent(content: string | Buffer, collectErrors: boolean): ParseResult {
   const parsed: Record<string, string> = {}
-  const errors: ParseError[] = []
+  const diagnostics: ParseDiagnostics = { errors: [], truncated: false }
   const source = content.toString().replace(/\r\n?/g, '\n')
-  const lineStarts = collectErrors ? getLineStarts(source) : []
-  const coveredLines = collectErrors ? new Set<number>() : undefined
   const entryPattern = new RegExp(ENV_ENTRY_SOURCE, 'gm')
+  let checkedOffset = 0
+  let currentLine = 1
 
   let match: RegExpExecArray | null
   while ((match = entryPattern.exec(source)) !== null) {
+    if (collectErrors) {
+      currentLine = collectInvalidLines(
+        source,
+        checkedOffset,
+        match.index,
+        currentLine,
+        diagnostics
+      )
+    }
+
     const key = match[1]
     if (!key) continue
 
@@ -55,52 +69,104 @@ function parseContent(content: string | Buffer, collectErrors: boolean): ParseRe
       value = value.replace(/\\n/g, '\n').replace(/\\r/g, '\r')
     }
 
-    setOwn(parsed, key, value)
-
-    if (coveredLines) {
-      const firstLine = lineNumberForOffset(lineStarts, match.index)
-      const lastOffset = Math.max(match.index, match.index + match[0].length - 1)
-      const lastLine = lineNumberForOffset(lineStarts, lastOffset)
-      for (let line = firstLine; line <= lastLine; line++) {
-        coveredLines.add(line)
-      }
-    }
-  }
-
-  if (collectErrors && coveredLines) {
-    for (const [index, line] of source.split('\n').entries()) {
-      const lineNumber = index + 1
-      const trimmed = line.trim()
-      if (trimmed && !trimmed.startsWith('#') && !coveredLines.has(lineNumber)) {
-        errors.push({
+    if (collectErrors) {
+      if (value.includes('\0')) {
+        addParseError(diagnostics, {
           code: 'INVALID_ENTRY',
-          line: lineNumber,
-          message: 'Invalid environment entry',
+          line: currentLine,
+          message: 'Environment values cannot contain NUL characters',
         })
+      } else if (key === '__proto__') {
+        addParseError(diagnostics, {
+          code: 'INVALID_ENTRY',
+          line: currentLine,
+          message: 'Environment keys cannot use "__proto__"',
+        })
+      } else {
+        setOwn(parsed, key, value)
       }
+    } else if (key !== '__proto__') {
+      setOwn(parsed, key, value)
     }
+
+    currentLine += countNewlines(match[0])
+    checkedOffset = entryPattern.lastIndex
   }
 
-  return { parsed, errors }
+  if (collectErrors) {
+    collectInvalidLines(
+      source,
+      checkedOffset,
+      source.length,
+      currentLine,
+      diagnostics
+    )
+  }
+
+  return { parsed, errors: diagnostics.errors }
 }
 
-function getLineStarts(source: string): number[] {
-  const starts = [0]
-  for (let index = 0; index < source.length; index++) {
-    if (source[index] === '\n') starts.push(index + 1)
+function collectInvalidLines(
+  source: string,
+  start: number,
+  end: number,
+  firstLine: number,
+  diagnostics: ParseDiagnostics
+): number {
+  let line = firstLine
+  let lineStart = start
+
+  for (let index = start; index <= end; index++) {
+    if (index < end && source[index] !== '\n') continue
+
+    if (isInvalidLine(source, lineStart, index)) {
+      addParseError(diagnostics, {
+        code: 'INVALID_ENTRY',
+        line,
+        message: 'Invalid environment entry',
+      })
+    }
+
+    if (index < end) line++
+    lineStart = index + 1
   }
-  return starts
+
+  return line
 }
 
-function lineNumberForOffset(lineStarts: number[], offset: number): number {
-  let low = 0
-  let high = lineStarts.length
-
-  while (low < high) {
-    const middle = Math.floor((low + high) / 2)
-    if (lineStarts[middle]! <= offset) low = middle + 1
-    else high = middle
+function addParseError(
+  diagnostics: ParseDiagnostics,
+  error: ParseError
+): void {
+  if (diagnostics.errors.length < MAX_PARSE_ERRORS) {
+    diagnostics.errors.push(error)
+    return
   }
 
-  return Math.max(1, low)
+  if (!diagnostics.truncated) {
+    diagnostics.errors.push({
+      code: 'TOO_MANY_ERRORS',
+      line: error.line,
+      message: `Additional parse errors were omitted after ${MAX_PARSE_ERRORS} errors`,
+    })
+    diagnostics.truncated = true
+  }
+}
+
+function isInvalidLine(source: string, start: number, end: number): boolean {
+  let index = start
+  while (index < end && isHorizontalWhitespace(source[index]!)) index++
+  return index < end && source[index] !== '#'
+}
+
+function isHorizontalWhitespace(character: string): boolean {
+  return character !== '\n' && character.trim() === ''
+}
+
+function countNewlines(value: string): number {
+  let count = 0
+  for (let index = 0; index < value.length; index++) {
+    if (value[index] === '\n') count++
+  }
+  return count
 }

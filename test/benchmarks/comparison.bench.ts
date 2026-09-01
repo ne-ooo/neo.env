@@ -1,6 +1,6 @@
 import { bench, describe } from 'vitest'
 import dotenvOriginal from 'dotenv'
-import { parse as parseNeo } from '../../src/core/parser.js'
+import { parse as parseNeo, parseDetailed } from '../../src/core/parser.js'
 import { expand as expandNeo } from '../../src/core/expander.js'
 
 describe('Benchmark: neo.env vs dotenv', () => {
@@ -104,6 +104,15 @@ API_URL=http://\${HOST}:\${PORT}/api
         ])
       ),
     }
+    const staticVariables = Object.fromEntries(
+      Array.from({ length: 1_000 }, (_, index) => [`STATIC_${index}`, `value-${index}`])
+    )
+    const unrelatedEnvironment = Object.fromEntries(
+      Array.from({ length: 10_000 }, (_, index) => [
+        `UNRELATED_${index}`,
+        `value-${index}`,
+      ])
+    )
 
     bench('neo.env - variable expansion', () => {
       expandNeo(parsedVariables, { processEnv: emptyEnvironment })
@@ -116,6 +125,25 @@ API_URL=http://\${HOST}:\${PORT}/api
 
     bench('neo.env - shared-reference expansion', () => {
       expandNeo(sharedVariables, { processEnv: emptyEnvironment })
+    })
+
+    bench('neo.env - 1,000 static values', () => {
+      expandNeo(staticVariables, { processEnv: emptyEnvironment })
+    })
+
+    bench('neo.env - 10,000 unrelated environment values', () => {
+      expandNeo(parsedVariables, { processEnv: unrelatedEnvironment })
+    })
+  })
+
+  describe('Detailed Parse Scaling', () => {
+    const detailedEnv = Array.from(
+      { length: 10_000 },
+      (_, index) => `DETAILED_${index}=value-${index}`
+    ).join('\n')
+
+    bench('neo.env - parseDetailed 10,000 entries', () => {
+      parseDetailed(detailedEnv)
     })
   })
 

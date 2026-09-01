@@ -89,7 +89,7 @@ const detailed = parseDetailed(content)
 // error: { code: 'INVALID_ENTRY', line, message: 'Invalid environment entry' }
 ```
 
-Format-error messages do not contain source values.
+Format-error messages do not contain source values. Detailed parsing retains 100 individual errors at most, followed by a `TOO_MANY_ERRORS` diagnostic when needed.
 
 ### Supported syntax
 
@@ -155,7 +155,7 @@ DB_URL=postgres://${HOST:-localhost}:${PORT:-5432}/${DB_NAME:-myapp}
 - **Lookup order**: parsed values (first) → `process.env` → default value
 - **Recursive expansion**: Enabled by default, max depth 64
 - **Cycle handling**: Cycles throw `ExpansionError`
-- **Output limit**: Each expanded value is limited to 1,048,576 characters
+- **Resource limits**: Values default to 1 MiB; total output and intermediate work default to 16 MiB
 - **Unresolved variables**: Left as-is if not found and no default
 - **`$VAR` syntax**: Only matches uppercase variable names (`[A-Z_][A-Z0-9_]*`)
 - **`${VAR}` syntax**: Matches any variable name (no case restriction)
@@ -170,7 +170,12 @@ const nonRecursive = expand(parsed, { recursive: false })
 const customEnvironment = expand(parsed, { processEnv: { HOST: 'custom.host' } })
 
 // Configure safety limits
-const limited = expand(parsed, { maxDepth: 32, maxOutputLength: 262144 })
+const limited = expand(parsed, {
+  maxDepth: 32,
+  maxOutputLength: 262144,
+  maxTotalOutputLength: 4194304,
+  maxExpansionWorkLength: 4194304,
+})
 ```
 
 ## Schema Validation
@@ -233,6 +238,8 @@ Required fields and fields with defaults are required in the output type.
 Other fields are optional.
 The return type of `transform` takes priority over `type`.
 JSON output is `unknown` until application code narrows it.
+Failed validation returns partial values. Check `valid` before using required fields.
+An own empty string counts as present and is not replaced by a default.
 
 ## Complete Pipeline
 
@@ -268,15 +275,14 @@ startServer(values.PORT, values.DATABASE_URL)
 import type {
   LoadOptions,        // File, override, partial-load, expansion, environment, and limit options
   LoadResult,         // { parsed, errors }
-  ParseOptions,       // { debug?, multiline? }
   ParseResult,        // { parsed, errors }
   ParseError,         // { code, line, message }
-  ExpandOptions,      // { processEnv?, parsed?, recursive?, maxDepth?, maxOutputLength? }
+  ExpandOptions,      // References, recursion, depth, output, total, and work limits
   Schema,             // Record<string, SchemaField>
   SchemaField,        // { type?, required?, default?, enum?, pattern?, transform? }
   InferSchema,        // Output values inferred from a schema
   InferSchemaField,   // Output value inferred from one schema field
-  ValidationResult,   // { valid, errors, values }
+  ValidationResult,   // Complete values on success; partial values on failure
   ValidationError,    // { key, message }
 } from '@lpm.dev/neo.env'
 ```

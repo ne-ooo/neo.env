@@ -221,6 +221,8 @@ DB_URL=postgres://${HOST}:${PORT}/mydb  // 1 level — fine
 const expanded = expand(parsed, {
   maxDepth: 32,
   maxOutputLength: 262144,
+  maxTotalOutputLength: 4194304,
+  maxExpansionWorkLength: 4194304,
 })
 
 // If you don't need recursive expansion:
@@ -228,7 +230,7 @@ const nonRecursive = expand(parsed, { recursive: false })
 // Only expands one level of references
 ```
 
-Recursive expansion detects cycles. The default depth is 64. Each expanded value is limited to 1,048,576 characters.
+Recursive expansion detects cycles. The default depth is 64. Each value is limited to 1 MiB. Total output and intermediate work are each limited to 16 MiB.
 
 Source: `src/core/expander.ts` — `ExpansionError` reports cycles and exhausted limits
 

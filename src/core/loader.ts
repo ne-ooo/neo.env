@@ -8,7 +8,6 @@ import type {
   ExpandOptions,
   LoadOptions,
   LoadResult,
-  ParseOptions,
 } from '../types.js'
 
 /**
@@ -70,8 +69,7 @@ export function configAsync(options: LoadOptions = {}): Promise<LoadResult> {
 }
 
 function processContent(content: string, options: LoadOptions): LoadResult {
-  const parseOptions = selectParseOptions(options)
-  const result = parseDetailed(content, parseOptions)
+  const result = parseDetailed(content)
 
   if (result.errors.length > 0 && !(options.allowPartial ?? false)) {
     return result
@@ -98,6 +96,12 @@ function processContent(content: string, options: LoadOptions): LoadResult {
     if (options.maxOutputLength !== undefined) {
       expandOptions.maxOutputLength = options.maxOutputLength
     }
+    if (options.maxTotalOutputLength !== undefined) {
+      expandOptions.maxTotalOutputLength = options.maxTotalOutputLength
+    }
+    if (options.maxExpansionWorkLength !== undefined) {
+      expandOptions.maxExpansionWorkLength = options.maxExpansionWorkLength
+    }
     finalParsed = expand(result.parsed, expandOptions)
   }
 
@@ -106,13 +110,6 @@ function processContent(content: string, options: LoadOptions): LoadResult {
   }
 
   return { parsed: finalParsed, errors: result.errors }
-}
-
-function selectParseOptions(options: LoadOptions): ParseOptions {
-  const selected: ParseOptions = {}
-  if (options.debug !== undefined) selected.debug = options.debug
-  if (options.multiline !== undefined) selected.multiline = options.multiline
-  return selected
 }
 
 function toError(value: unknown): Error {

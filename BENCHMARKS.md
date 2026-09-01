@@ -56,8 +56,8 @@ The size table contains the uncompressed output from `lpm run build`.
 
 | Entry | ESM | CommonJS | Declaration file |
 |---|---:|---:|---:|
-| Main API | 14,459 bytes | 16,387 bytes | 5,458 bytes per format |
-| Side-effect configuration | 10,303 bytes | 10,370 bytes | 13 bytes per format |
+| Main API | 20,273 bytes | 22,201 bytes | 5,577 bytes per format |
+| Side-effect configuration | 15,867 bytes | 15,934 bytes | 13 bytes per format |
 
 The package has no runtime dependencies.
 The size values do not include source maps.
